@@ -1,0 +1,14 @@
+Metadata-Version: 2.1
+Name: erl_eval
+Version: 0.1
+Summary: Expected run length (ERL) evaluation
+Home-page: https://github.com/PytorchConnectomics/erl_eval
+Author: Donglai Wei
+License: MIT
+License-File: LICENSE
+Requires-Dist: scipy
+Requires-Dist: numpy
+Requires-Dist: networkx
+Requires-Dist: h5py
+Requires-Dist: imageio
+Requires-Dist: argparse
