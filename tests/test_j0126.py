@@ -144,7 +144,7 @@ if __name__ == "__main__":
         gt_graph = read_pkl(get_file_path(args.output_folder, 'gt_graph'))[0]
         node_segment_lut = read_vol(get_file_path(args.output_folder, 'seg_lut_all'))
         scores = compute_erl(gt_graph, node_segment_lut)
-        # 1.1mm, 2.1mm, 97.3mm
+        # 1.10mm, 2.11mm, 97.35mm
         print(f"erl-seg: {scores[0]}")
         print(f"erl-gt: {scores[1]}")
         print(f"total gt length: {scores[2]}")
