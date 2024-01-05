@@ -36,7 +36,6 @@ def read_vol(filename, dataset_name=None, chunk_id=0, chunk_num=1):
         return read_h5(filename, dataset_name, chunk_id=chunk_id, chunk_num=chunk_num)
     elif ".tif" in filename or ".tiff" in filename:
         from imageio import volread
-
         return volread(filename)
     else:
         raise ValueError("cannot recognize input file type:", filename)

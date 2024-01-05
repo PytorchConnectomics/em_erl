@@ -1,14 +1,15 @@
-import argparse
-import os
-from erl_eval.data_io import read_pkl, mkdir, read_vol, write_h5, write_pkl
-from erl_eval.erl import (
+import os, argparse
+import numpy as np
+import h5py
+from erl.data_io import read_pkl, mkdir, read_vol, write_h5, write_pkl
+from erl.eval import (
     compute_segment_lut,
     compute_erl,
     compute_segment_lut_tile,
     compute_segment_lut_tile_combine,
 )
-from erl_eval.skeleton import node_edge_to_networkx
-from erl_eval.networkx_lite import convert_networkx_to_lite
+from erl.skeleton import node_edge_to_networkx
+from erl.networkx_lite import convert_networkx_to_lite
     
 
 def get_file_path(folder, name):
@@ -43,13 +44,7 @@ def compute_lut_j0126(output_folder, option, seg_folder="", gt_skeleton="", job=
             print(f"File exists: ${seg_lut_path}")
         else:
             # check that all files exist
-            for z in zran:
-                for y in yran:
-                    for x in xran:
-                        sn = seg_lut_path % (z, y, x)
-                        if not os.path.exists(sn):
-                            raise f"File not exists: {sn}"
-
+            _ = compute_segment_lut_tile_combine(zran, yran, xran, seg_lut_path, dry_run=True)
             out = compute_segment_lut_tile_combine(zran, yran, xran, seg_lut_path)
             write_h5(seg_lut_all_path, out)        
 
@@ -106,24 +101,26 @@ def get_arguments():
 
     args = parser.parse_args()
 
-    if len(args.gt_mask_path) == 0:
-        args.gt_mask_path = None
     args.job = [int(x) for x in args.job.split(",")]
     return args
 
 def compute_skeleton_j0126(gt_skeleton, output_folder):
-    skeletons = read_vol(gt_skeleton)    
+    skeletons = h5py.File(gt_skeleton, 'r')
     vertices_path = get_file_path(output_folder, 'gt_vertices')
     graph_path = get_file_path(output_folder, 'gt_graph') 
     
-    if not os.path.exists(vertices_path) or os.path.exists(graph_path):
-        vertices = [np.array(skeletons[k]['vertices']).astype(np.uint16) for k in skeletons.keys()] 
+    if not (os.path.exists(vertices_path) and os.path.exists(graph_path)):
+        vertices = [[]] * len(skeletons)
+        for i, k in enumerate(skeletons):
+            vertices[i] = np.array(skeletons[k]['vertices']).astype(np.uint16)
         if not os.path.exists(vertices_path): 
-            write_h5(pts_path, np.vstack(vertices))
+            write_h5(vertices_path, np.vstack(vertices))
         if not os.path.exists(graph_path):
-            edges = [np.array(skeletons[k]['edges']).astype(np.uint16) for k in skeletons.keys()]                     
-            gt_graph = node_edge_to_networkx(vertices, edges, [20,10,10])
-            gt_graph_lite = convert_networkx_to_lite(gt_graph)
+            edges = [[]] * len(skeletons)
+            for i, k in enumerate(skeletons):
+                edges[i] = np.array(skeletons[k]['edges']).astype(np.uint16)
+            gt_graph = node_edge_to_networkx(vertices, edges, [20,10,10], data_type=np.uint32)
+            gt_graph_lite = convert_networkx_to_lite(gt_graph, data_type=np.uint32)
             write_pkl(graph_path, gt_graph_lite)    
 
         
@@ -137,14 +134,17 @@ if __name__ == "__main__":
     elif args.task == 1:
         print("Step 1: compute segment id for each seg tile")
         compute_lut_j0126(
-            args.output_folder, "map", args.seg_folder, get_file_path(args, 'gt_vertices'), args.job
+            args.output_folder, "map", args.seg_folder, get_file_path(args.output_folder, 'gt_vertices'), args.job
         )
     elif args.task == 2:
         print("Step 2: combine segment id results for all seg tiles")
         compute_lut_j0126(args.output_folder, "reduce")        
     elif args.task == 3: 
         print("Step 3: compute erl")
-        gt_graph = read_pkl(get_file_path(output_folder, 'gt_graph'))
-        node_segment_lut = read_vol(get_file_path(output_folder, 'seg_lut_all'))
+        gt_graph = read_pkl(get_file_path(args.output_folder, 'gt_graph'))[0]
+        node_segment_lut = read_vol(get_file_path(args.output_folder, 'seg_lut_all'))
         scores = compute_erl(gt_graph, node_segment_lut)
-        print(f"ERL/GT for seg {args.seg_folder}: {scores}")
+        # 1.1mm, 2.1mm, 97.3mm
+        print(f"erl-seg: {scores[0]}")
+        print(f"erl-gt: {scores[1]}")
+        print(f"total gt length: {scores[2]}")

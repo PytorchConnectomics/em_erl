@@ -1,7 +1,7 @@
 import argparse
 import numpy as np
 import scipy.sparse as sp
-from erl_eval.data_io import read_pkl, write_pkl
+from erl.data_io import read_pkl, write_pkl
 
 # implement a light-weight networkx graph like class with npz backend
 # assumes fixed number of nodes and edges
@@ -20,8 +20,8 @@ class NetworkXGraphLite:
         self,
         node_attributes=["skeleton_id", "z", "y", "x"],
         edge_attribute="length",
-        node_dtype=np.uint16,
-        edge_dtype=np.float32,
+        node_dtype=np.uint32,
+        edge_dtype=np.uint32
     ):
         self.node_attributes = sorted(node_attributes)
         self.node_dtype = node_dtype
@@ -160,7 +160,7 @@ class EdgeDataViewerLite:
         self._edges[self._key] = value
 
 
-def convert_networkx_to_lite(networkx_graph):
+def convert_networkx_to_lite(networkx_graph, data_type=np.uint16):
     """
     The function converts a NetworkX graph to a NetworkXGraphLite graph.
 
@@ -169,6 +169,8 @@ def convert_networkx_to_lite(networkx_graph):
     where each node can have attributes and each edge can have attributes
     :return: a NetworkXGraphLite object.
     """
-    networkx_lite_graph = NetworkXGraphLite(["skeleton_id", "z", "y", "x"], "length")
+    networkx_lite_graph = NetworkXGraphLite(["skeleton_id", "z", "y", "x"], "length", \
+                                            node_dtype=data_type, \
+                                            edge_dtype=data_type)
     networkx_lite_graph.load_graph(networkx_graph)
     return networkx_lite_graph

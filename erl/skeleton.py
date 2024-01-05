@@ -1,8 +1,8 @@
 import argparse
 import numpy as np
 import networkx as nx
-from erl_eval.data_io import read_vol, write_pkl
-from erl_eval.networkx_lite import convert_networkx_to_lite
+from erl.data_io import read_vol, write_pkl
+from erl.networkx_lite import convert_networkx_to_lite
 
 
 def skeletonize(
@@ -157,11 +157,11 @@ def node_edge_to_networkx(
     for skeleton_id, node_arr in enumerate(nodes):
         if len(edges[skeleton_id]) == 0:
             continue
+        node_arr = node_arr.astype(data_type)
         if skeleton_resolution is not None:
             node_arr = node_arr * skeleton_resolution
-        node_arr = node_arr.astype(data_type)
         # augment the node index
-        edge_arr = edges[skeleton_id] + count
+        edge_arr = edges[skeleton_id].astype(data_type) + count
         for node in node_arr:
             # unit: physical
             gt_graph.add_node(

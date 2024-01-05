@@ -2,10 +2,10 @@ import os, sys
 from setuptools import setup, find_packages
 
 
-def setup_package(no_cython=True):
+def setup_package():
     __version__ = '0.1'
-    url = 'https://github.com/PytorchConnectomics/erl_eval'
-    setup(name='erl_eval',
+    url = 'https://github.com/PytorchConnectomics/erl'
+    setup(name='erl',
         description='Expected run length (ERL) evaluation',
         version=__version__,
         url=url,

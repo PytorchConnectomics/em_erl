@@ -1,10 +1,10 @@
 import argparse
-from erl_eval.data_io import read_pkl
-from erl_eval.erl import (
+from erl.data_io import read_pkl
+from erl.eval import (
     compute_segment_lut,
     compute_erl,
 )
-from erl_eval.networkx_lite import *
+from erl.networkx_lite import *
 
 
 def test_AxonEM(

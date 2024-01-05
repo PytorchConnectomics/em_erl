@@ -1,6 +1,6 @@
 import os
 import numpy as np
-from erl_eval.data_io import read_vol, write_h5, mkdir
+from erl.data_io import read_vol, write_h5, mkdir
 
 # step 1: compute node_id-segment lookup table from predicted segmemtation and node positions
 # step 2: compute the ERL from the lookup table and the gt graph
@@ -16,6 +16,7 @@ def compute_segment_lut_tile(
             for x in xran:
                 sn = output_path_format % (z, y, x)
                 if not os.path.exists(sn):
+                    print(f'computing: {sn}')
                     seg = read_vol(seg_path_format % (z, y, x))
                     sz = seg.shape
                     ind = (pts[:, 0] >= z * factor[0]) * (
@@ -33,15 +34,20 @@ def compute_segment_lut_tile(
                     write_h5(sn, [ind, val], ["ind", "val"])
 
 
-def compute_segment_lut_tile_combine(zran, yran, xran, output_path_format):
+def compute_segment_lut_tile_combine(zran, yran, xran, output_path_format, dry_run=False):
     out = None
     for z in zran:
         for y in yran:
             for x in xran:
-                ind, val = read_vol(output_path_format % (z, y, x))
-                if out is None:
-                    out = np.zeros(ind.shape).astype(val.dtype)
-                out[ind] = val
+                sn = output_path_format % (z, y, x)
+                if dry_run:
+                    if not os.path.exists(sn):
+                        raise f"File not exists: {sn}"
+                else:
+                    ind, val = read_vol(sn)
+                    if out is None:
+                        out = np.zeros(ind.shape).astype(val.dtype)
+                    out[ind] = val
     return out
 
 def compute_segment_lut(
@@ -250,8 +256,8 @@ def expected_run_length(
     skel_all = (skel_weighted / skeleton_length_all).sum()
 
     if erl_intervals is not None:
-        erl = np.zeros([len(erl_intervals), 2])
-        erl[0] = [erl_all, skel_all]
+        erl = np.zeros([len(erl_intervals), 3])
+        erl[0] = [erl_all, skel_all, skeleton_length_all]
         for i in range(1, len(erl_intervals)):
             skeleton_index = (skeleton_lengths >= erl_intervals[i - 1]) * (
                 skeleton_lengths < erl_intervals[i]
@@ -259,8 +265,9 @@ def expected_run_length(
             selected_length = skeleton_lengths[skeleton_index].sum()
             erl[i, 0] = sum(erl_weighted[skeleton_index] / selected_length)
             erl[i, 1] = sum(skel_weighted[skeleton_index] / selected_length)
+            erl[i, 2] = selected_length
     else:
-        erl = [erl_all, skel_all]
+        erl = [erl_all, skel_all, skeleton_length_all]
 
     if return_merge_split_stats:
         return erl, merge_split_stats
