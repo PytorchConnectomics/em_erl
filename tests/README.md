@@ -1,10 +1,12 @@
 Reproducing FFN evaluation result (test_j0126.py)
 ----
 [paper](https://www.nature.com/articles/s41592-018-0049-4), [data from the paper](https://storage.googleapis.com/j0126-nature-methods-data/GgwKmcKgrcoNxJccKuGIzRnQqfit9hnfK1ctZzNbnuU/README.txt)
-- Data download ([our processed version](https://huggingface.co/datasets/pytc/zebrafinch-j0126/tree/main))
-    = GT skeleton: [test (50 neurons)](https://huggingface.co/datasets/pytc/zebrafinch-j0126/blob/main/test_50_skeletons.h5), [validation (12 neurons)](https://huggingface.co/datasets/pytc/zebrafinch-j0126/blob/main/valid_12_skeletons.h5)
-    = FFN segmentation: [whole volume]()
-    = (optional) training data: [33 subvolumes](https://huggingface.co/datasets/pytc/zebrafinch-j0126/blob/main/j0126-train-33vol.zip)
+- Data download (our processed version)
+    - GT skeleton: [test (50 neurons)](https://huggingface.co/datasets/pytc/zebrafinch-j0126/blob/main/test_50_skeletons.h5), [validation (12 neurons)](https://huggingface.co/datasets/pytc/zebrafinch-j0126/blob/main/valid_12_skeletons.h5)
+  
+    - FFN segmentation: [part 1](), [part 2]()
+
+    - (optional) training data: [33 subvolumes](https://huggingface.co/datasets/pytc/zebrafinch-j0126/blob/main/j0126-train-33vol.zip)
 - Run script
 ```
 # unzip FFN segmentation: XX/ffn_agg_20-10-10/
