@@ -1,8 +1,8 @@
 import argparse
 import numpy as np
 import networkx as nx
-from erl.data_io import read_vol, write_pkl
-from erl.networkx_lite import convert_networkx_to_lite
+from em_util.io import read_vol, write_pkl
+from .networkx_lite import convert_networkx_to_lite
 
 
 def skeletonize(

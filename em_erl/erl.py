@@ -1,6 +1,6 @@
 import os
 import numpy as np
-from erl.data_io import read_vol, write_h5, mkdir
+from em_util.io import read_vol, write_h5, mkdir
 
 # step 1: compute node_id-segment lookup table from predicted segmemtation and node positions
 # step 2: compute the ERL from the lookup table and the gt graph

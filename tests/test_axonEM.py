@@ -1,14 +1,19 @@
 import argparse
-from erl.data_io import read_pkl
-from erl.eval import (
+from em_erl.erl import (
     compute_segment_lut,
     compute_erl,
 )
-from erl.networkx_lite import *
+from em_erl.networkx_lite import *
+from em_util.io import read_pkl
 
 
 def test_AxonEM(
-    gt_stats_path, pred_seg_path, gt_mask_path=None, num_chunk=1, merge_threshold=0, erl_intervals=''
+    gt_stats_path,
+    pred_seg_path,
+    gt_mask_path=None,
+    num_chunk=1,
+    merge_threshold=0,
+    erl_intervals="",
 ):
     """
     The function `test_AxonEM` takes in the paths to ground truth statistics and predicted segmentation,

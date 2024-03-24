@@ -21,7 +21,7 @@ class NetworkXGraphLite:
         node_attributes=["skeleton_id", "z", "y", "x"],
         edge_attribute="length",
         node_dtype=np.uint32,
-        edge_dtype=np.uint32
+        edge_dtype=np.uint32,
     ):
         self.node_attributes = sorted(node_attributes)
         self.node_dtype = node_dtype
@@ -160,7 +160,7 @@ class EdgeDataViewerLite:
         self._edges[self._key] = value
 
 
-def convert_networkx_to_lite(networkx_graph, data_type=np.uint16):
+def networkx_to_lite(networkx_graph, data_type=np.uint16):
     """
     The function converts a NetworkX graph to a NetworkXGraphLite graph.
 
@@ -169,8 +169,74 @@ def convert_networkx_to_lite(networkx_graph, data_type=np.uint16):
     where each node can have attributes and each edge can have attributes
     :return: a NetworkXGraphLite object.
     """
-    networkx_lite_graph = NetworkXGraphLite(["skeleton_id", "z", "y", "x"], "length", \
-                                            node_dtype=data_type, \
-                                            edge_dtype=data_type)
+    networkx_lite_graph = NetworkXGraphLite(
+        ["skeleton_id", "z", "y", "x"],
+        "length",
+        node_dtype=data_type,
+        edge_dtype=data_type,
+    )
     networkx_lite_graph.load_graph(networkx_graph)
     return networkx_lite_graph
+
+
+def skel_to_lite(skeletons, skeleton_resolution=None, data_type=np.uint16):
+    """
+    The function `skeleton_to_networkx` converts a skeleton object into a networkx graph, with an option
+    to return all nodes.
+
+    :param skeletons: The "skeletons" parameter is a list of skeleton objects. Each skeleton object
+    represents a graph structure with nodes and edges. The function converts these skeleton objects into
+    a networkx graph object
+    :param skeleton_resolution: The `skeleton_resolution` parameter is an optional parameter that
+    specifies the resolution of the skeleton. It is used to scale the node coordinates in the skeleton.
+    If provided, the node coordinates will be multiplied by the skeleton resolution
+    :param return_all_nodes: The `return_all_nodes` parameter is a boolean flag that determines whether
+    or not to return all the nodes in the graph. If `return_all_nodes` is set to `True`, the function
+    will return both the graph object and an array of all the nodes in the graph. If `return_all,
+    defaults to False (optional)
+    :return: The function `skeleton_to_networkx` returns a networkx graph object representing the
+    skeleton. Additionally, if the `return_all_nodes` parameter is set to `True`, the function also
+    returns an array of all the nodes in the skeleton.
+    """
+
+    # node in gt_graph: physical unit
+    gt_graph = NetworkXGraphLite(
+        ["skeleton_id", "z", "y", "x"],
+        "length",
+        node_dtype=data_type,
+        edge_dtype=data_type,
+    )
+    count = 0
+    nodes = [None] * len(skeletons)
+    edges = [None] * len(skeletons)
+    for skeleton_id, skeleton in enumerate(skeletons):
+        if len(skeleton.edges) == 0:
+            continue
+        if skeleton_resolution is not None:
+            node_arr = node_arr * skeleton_resolution
+        node_arr = skeleton.vertices.astype(data_type)
+
+        num_arr = node_arr.shape[0]
+        ind_arr = count + np.arange(num_arr).reshape(-1, 1)
+        skel_arr = skeleton_id * np.ones([num_arr, 1], data_type)
+        nodes[skeleton_id] = np.hstack([ind_arr, skel_arr, node_arr])
+
+        # augment the node index
+        edges[skeleton_id] = skeleton.edges + count
+
+        count += num_arr
+
+    gt_graph._nodes = np.vstack(nodes)
+    del nodes
+
+    num_node = gt_graph._nodes.shape[0]
+    gt_graph._edges = sp.dok_matrix((num_node, num_node), dtype=data_type)
+    edges = np.vstack(edges)
+    for edge_0, edge_1 in edges:
+        edge = tuple(sorted([edge_0, edge_1]))
+        gt_graph._edges[edge] = -1
+    del edges
+
+    gt_graph.init_viewers()
+
+    return gt_graph
