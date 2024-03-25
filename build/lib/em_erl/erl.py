@@ -11,38 +11,30 @@ def compute_segment_lut_tile(
     seg_path_format, zran, yran, xran, pts, output_path_format, factor=[1, 2048, 2048]
 ):
     for z in zran:
-        mkdir(output_path_format % (z, 0, 0), "parent")
+        mkdir(output_path_format % (z, 0, 0), 'parent')
         for y in yran:
             for x in xran:
                 sn = output_path_format % (z, y, x)
                 if not os.path.exists(sn):
-                    print(f"computing: {sn}")
+                    print(f'computing: {sn}')
                     seg = read_vol(seg_path_format % (z, y, x))
                     sz = seg.shape
                     ind = (pts[:, 0] >= z * factor[0]) * (
                         pts[:, 0] < z * factor[0] + sz[0]
                     )
-                    ind = (
-                        ind
-                        * (pts[:, 1] >= y * factor[1])
-                        * (pts[:, 1] < y * factor[1] + sz[1])
+                    ind = ind * (pts[:, 1] >= y * factor[1]) * (
+                        pts[:, 1] < y * factor[1] + sz[1]
                     )
-                    ind = (
-                        ind
-                        * (pts[:, 2] >= x * factor[2])
-                        * (pts[:, 2] < x * factor[2] + sz[2])
-                    )
+                    ind = ind * (pts[:, 2] >= x * factor[2]) * (
+                        pts[:, 2] < x * factor[2] + sz[2]
+                    )                    
                     val = seg[
-                        pts[ind, 0] - z * factor[0],
-                        pts[ind, 1] - y * factor[1],
-                        pts[ind, 2] - x * factor[2],
-                    ]
+                        pts[ind, 0] - z * factor[0], pts[ind, 1] - y * factor[1], 
+                        pts[ind, 2]  - x * factor[2]]
                     write_h5(sn, [ind, val], ["ind", "val"])
 
 
-def compute_segment_lut_tile_combine(
-    zran, yran, xran, output_path_format, dry_run=False
-):
+def compute_segment_lut_tile_combine(zran, yran, xran, output_path_format, dry_run=False):
     out = None
     for z in zran:
         for y in yran:
@@ -58,12 +50,11 @@ def compute_segment_lut_tile_combine(
                     out[ind] = val
     return out
 
-
 def compute_segment_lut(
     segment, node_position, mask=None, chunk_num=1, data_type=np.uint32
 ):
     """
-    The function `compute_segment_lut` is a low memory version of a lookup table
+    The function `compute_node_segment_lut_low_mem` is a low memory version of a lookup table
     computation for node segments in a 3D volume.
 
     :param node_position: A numpy array containing the coordinates of each node. The shape of the array
@@ -81,7 +72,6 @@ def compute_segment_lut(
     specific segment.
     """
     if not isinstance(segment, str):
-        # load the whole segment
         node_lut = segment[
             node_position[:, 0], node_position[:, 1], node_position[:, 2]
         ]
@@ -91,7 +81,6 @@ def compute_segment_lut(
                 mask = read_vol(mask)
             mask_id = segment[mask > 0]
     else:
-        # read segment by chunk (when memory is limited)
         assert ".h5" in segment
         node_lut = np.zeros(node_position.shape[0], data_type)
         mask_id = [[]] * chunk_num
@@ -126,7 +115,6 @@ def compute_erl(
     mask_segment_id=None,
     merge_threshold=0,
     erl_intervals=None,
-    return_merge_split_stats=False,
 ):
     """
     The function `compute_erl` calculates the expected run length (ERL) scores for a given ground truth
@@ -149,7 +137,6 @@ def compute_erl(
         merge_threshold=merge_threshold,
         erl_intervals=erl_intervals,
         skeleton_position_attributes=["z", "y", "x"],
-        return_merge_split_stats=return_merge_split_stats,
     )
 
 
@@ -250,9 +237,9 @@ def expected_run_length(
         skeleton_length = skeleton_lengths[skeleton_id]
         skeleton_erl = 0
         correct_edges_length = 0
-        for _, correct_edges in scores.correct_edges.items():
+        for segment_id, correct_edges in scores.correct_edges.items():
             correct_edges_length = np.sum(
-                [0] + [skeletons.edges[e][edge_length_attribute] for e in correct_edges]
+                [skeletons.edges[e][edge_length_attribute] for e in correct_edges]
             )
 
             skeleton_erl += correct_edges_length * (
@@ -270,7 +257,7 @@ def expected_run_length(
 
     if erl_intervals is not None:
         erl = np.zeros([len(erl_intervals), 3])
-        erl[0] = [erl_all, skel_all, len(skeleton_lengths)]
+        erl[0] = [erl_all, skel_all, skeleton_length_all]
         for i in range(1, len(erl_intervals)):
             skeleton_index = (skeleton_lengths >= erl_intervals[i - 1]) * (
                 skeleton_lengths < erl_intervals[i]
@@ -278,11 +265,14 @@ def expected_run_length(
             selected_length = skeleton_lengths[skeleton_index].sum()
             erl[i, 0] = sum(erl_weighted[skeleton_index] / selected_length)
             erl[i, 1] = sum(skel_weighted[skeleton_index] / selected_length)
-            erl[i, 2] = skeleton_index.sum()
+            erl[i, 2] = selected_length
     else:
-        erl = [erl_all, skel_all, len(skeleton_lengths)]
+        erl = [erl_all, skel_all, skeleton_length_all]
 
-    return (erl, merge_split_stats) if return_merge_split_stats else erl
+    if return_merge_split_stats:
+        return erl, merge_split_stats
+    else:
+        return erl
 
 
 def get_skeleton_lengths(
@@ -328,15 +318,13 @@ def get_skeleton_lengths(
         if skeleton_id not in skeleton_lengths:
             skeleton_lengths[skeleton_id] = 0
 
-        if data[store_edge_length] == 0:
-            # recompute the edge length
-            pos_u = node_positions[u]
-            pos_v = node_positions[v]
-            length = np.linalg.norm(pos_u - pos_v)
-            data[store_edge_length] = length
-        else:
-            length = data[store_edge_length]
+        pos_u = node_positions[u]
+        pos_v = node_positions[v]
 
+        length = np.linalg.norm(pos_u - pos_v)
+
+        if store_edge_length:
+            data[store_edge_length] = length
         skeleton_lengths[skeleton_id] += length
 
     return skeleton_lengths
@@ -361,6 +349,7 @@ def evaluate_skeletons(
 ):
     # find all merging segments (skeleton edges on merging segments will be
     # counted as wrong)
+
     # pairs of (skeleton, segment), one for each node
     skeleton_segment_all = np.array(
         [
@@ -399,6 +388,7 @@ def evaluate_skeletons(
     # print("merging seg:", merging_segments)
     # print("merging:", skeleton_segment[merging_segments_mask].T)
     # print("merging seg:", np.unique(skeleton_segment[:, 1][merging_segments_mask]))
+    # import pdb; pdb.set_trace()
     # print("merging skel:", np.unique(merged_skeletons))
     # skeleton_segment[skeleton_segment[:, 1]==57, 0]
     # np.unique(skeleton_segment_all[skeleton_segment_all[:, 1]==1021,0])

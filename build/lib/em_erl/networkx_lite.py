@@ -44,16 +44,7 @@ class NetworkXGraphLite:
         assert self._edges is not None
         self.edges = EdgeViewerLite(self._edges, self.edge_attribute)
 
-    def get_nodes(self):
-        return self._nodes
-
-    def set_nodes(self, nodes):
-        self._nodes = nodes
-
-    def set_edges(self, edges):
-        self._edges = edges
-
-    def networkx_to_lite(self, nx_graph):
+    def load_graph(self, graph):
         """
         The function loads a graph into the object, ensuring that the graph nodes have the same
         attributes and storing the node and edge data in appropriate data structures.
@@ -61,16 +52,16 @@ class NetworkXGraphLite:
         :param graph: The `graph` parameter is an object that represents a graph. It contains
         information about the nodes and edges of the graph
         """
-        assert len(nx_graph.nodes) > 0
+        assert len(graph.nodes) > 0
         # assert every node has the same attributes
-        assert list(nx_graph.nodes) == list(range(len(nx_graph.nodes)))
+        assert list(graph.nodes) == list(range(len(graph.nodes)))
 
         nodes = {key: [] for key in self.node_attributes}
 
         minval = np.inf
         maxval = 0
-        for node in nx_graph.nodes:
-            node = nx_graph.nodes[node]
+        for node in graph.nodes:
+            node = graph.nodes[node]
             for key in self.node_attributes:
                 assert key in node
                 nodes[key].append(node[key])
@@ -85,9 +76,9 @@ class NetworkXGraphLite:
         ).astype(self.node_dtype)
 
         edges = sp.dok_matrix(
-            (len(nx_graph.nodes), len(nx_graph.nodes)), dtype=self.edge_dtype
+            (len(graph.nodes), len(graph.nodes)), dtype=self.edge_dtype
         )
-        for edge_0, edge_1, data in nx_graph.edges(data=True):
+        for edge_0, edge_1, data in graph.edges(data=True):
             edge = tuple(sorted([edge_0, edge_1]))
             edges[edge] = (
                 data[self.edge_attribute] if self.edge_attribute in data else -1
@@ -187,9 +178,7 @@ def networkx_to_lite(networkx_graph, data_type=np.uint16):
     return networkx_lite_graph
 
 
-def skel_to_lite(
-    skeletons, skeleton_resolution=None, node_type=np.uint16, edge_type=np.float16
-):
+def skel_to_lite(skeletons, skeleton_resolution=None, data_type=np.uint16):
     """
     The function `skeleton_to_networkx` converts a skeleton object into a networkx graph, with an option
     to return all nodes.
@@ -213,41 +202,40 @@ def skel_to_lite(
     gt_graph = NetworkXGraphLite(
         ["skeleton_id", "z", "y", "x"],
         "length",
-        node_dtype=node_type,
-        edge_dtype=edge_type,
+        node_dtype=data_type,
+        edge_dtype=data_type,
     )
     count = 0
     nodes = [None] * len(skeletons)
     edges = [None] * len(skeletons)
-
-    for skeleton_id, (_, skeleton) in enumerate(skeletons.items()):
+    for skeleton_id, skeleton in enumerate(skeletons):
         if len(skeleton.edges) == 0:
             continue
-        node_arr = skeleton.vertices.astype(node_type)
         if skeleton_resolution is not None:
-            node_arr = node_arr * skeleton_resolution.astype(node_type)
+            node_arr = node_arr * skeleton_resolution
+        node_arr = skeleton.vertices.astype(data_type)
 
         num_arr = node_arr.shape[0]
-        skel_arr = skeleton_id * np.ones([num_arr, 1], node_type)
-        nodes[skeleton_id] = np.hstack([skel_arr, node_arr])
+        ind_arr = count + np.arange(num_arr).reshape(-1, 1)
+        skel_arr = skeleton_id * np.ones([num_arr, 1], data_type)
+        nodes[skeleton_id] = np.hstack([ind_arr, skel_arr, node_arr])
 
         # augment the node index
         edges[skeleton_id] = skeleton.edges + count
 
         count += num_arr
 
-    gt_graph.set_nodes(np.vstack(nodes))
+    gt_graph._nodes = np.vstack(nodes)
     del nodes
 
-    gt_edges = sp.dok_matrix((count, count), dtype=edge_type)
+    num_node = gt_graph._nodes.shape[0]
+    gt_graph._edges = sp.dok_matrix((num_node, num_node), dtype=data_type)
     edges = np.vstack(edges)
     for edge_0, edge_1 in edges:
         edge = tuple(sorted([edge_0, edge_1]))
-        gt_edges[edge] = np.linalg.norm(
-            gt_graph._nodes[edge_0] - gt_graph._nodes[edge_1].astype(int)
-        )
+        gt_graph._edges[edge] = -1
     del edges
-    gt_graph.set_edges(gt_edges)
+
     gt_graph.init_viewers()
 
     return gt_graph

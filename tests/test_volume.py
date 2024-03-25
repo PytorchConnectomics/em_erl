@@ -1,47 +1,27 @@
 import argparse
 import numpy as np
-from erl.data_io import read_vol, read_pkl
-from erl.skeleton import skeleton_to_networkx
-from erl.eval import compute_node_segment_lut, compute_erl
+from em_util.io import read_vol
+from em_erl.erl import compute_segment_lut, compute_erl
+from em_erl.networkx_lite import skel_to_lite
 
 
-def test_volume(
-    seg_path,
-    skeleton_path,
-    skeleton_unit,
-    skeleton_resolution,
-):
-    """
-    The function `test_volume` takes in various inputs, including a segmentation path, a skeleton path,
-    and parameters related to units, and performs computations to calculate the ERL
-    (Error Rate of Length) for the given segmentation.
-
-    :param seg_path: The path to the segmentation volume file
-    :param skeleton_path: The `skeleton_path` parameter is the path to the file that contains the
-    skeleton data
-    :param skeleton_unit: The parameter "skeleton_unit" determines the unit of measurement for the
-    skeleton. It can have two possible values: "physical" or "voxel"
-    :param skeleton_resolution: The `skeleton_resolution` parameter represents the voxel size of the
-    skeleton data. It is used to convert the node positions from physical units to voxel units if
-    `skeleton_unit` is set to "voxel"
-    """
-
-    pred_seg = read_vol(seg_path)
-    gt_skeleton = read_pkl(skeleton_path)
-
-    # graph: need physical unit
+def test_volume(pred_path, gt_path, gt_mask_path=""):
+    pred_seg = read_vol(pred_path)
+    gt_mask = None if gt_mask_path == "" else read_vol(gt_mask_path)
+    # graph: in physical unit
+    gt_graph, gt_res = read_vol(gt_path)
     # node position: need voxel unit
-    if skeleton_unit == "physical":
-        gt_graph, all_nodes = skeleton_to_networkx(gt_skeleton, None, True)
-        all_nodes = all_nodes // skeleton_resolution
-    else:
-        gt_graph, all_nodes = skeleton_to_networkx(
-            gt_skeleton, skeleton_resolution, True
-        )
+    node_voxel = (gt_graph.get_nodes()[:, 1:] // gt_res).astype(int)
 
-    node_segment_lut = compute_node_segment_lut(all_nodes, [pred_seg])
-    scores = compute_erl(gt_graph, node_segment_lut)
-    print(f"ERL for seg {seg_path}: {scores[0]}")
+    node_segment_lut, mask_id = compute_segment_lut(pred_seg, node_voxel, gt_mask)
+
+    scores = compute_erl(
+        gt_graph, node_segment_lut, mask_id, return_merge_split_stats=True
+    )
+    print(f"{pred_path}\n-----")
+    print(f"ERL\t: {scores[0][0]:.2f}")
+    print(f"gt ERL\t: {scores[0][1]:.2f}")
+    print(f"#skel\t: {scores[0][2]:d}")
 
 
 def get_arguments():
@@ -52,49 +32,31 @@ def get_arguments():
     """
     parser = argparse.ArgumentParser(description="ERL evaluation on small volume")
     parser.add_argument(
-        "-s",
-        "--seg-path",
+        "-p",
+        "--pred-path",
         type=str,
         help="path to the segmentation prediction",
         required=True,
     )
     parser.add_argument(
         "-g",
-        "--skeleton-path",
+        "--gt-path",
         type=str,
-        help="path to ground truth skeleton",
+        help="path to ground truth network-lite graph",
         default="",
     )
     parser.add_argument(
-        "-gu",
-        "--skeleton-unit",
+        "-m",
+        "--gt-mask-path",
         type=str,
-        choices=["physical", "voxel"],
-        help="unit of the skeleton node positions",
-        default="voxel",
+        help="path to ground truth mask for false merge",
+        default="",
     )
-    parser.add_argument(
-        "-gr",
-        "--skeleton-resolution",
-        type=str,
-        help="resolution of ground truth skeleton",
-        required=True,
-    )
-    result_args = parser.parse_args()
-    assert (
-        "x" in result_args.skeleton_resolution
-    ), "The gt skeleton resolution needs to be in the format of axbxc"
-    result_args.skeleton_resolution = [
-        int(x) for x in result_args.skeleton_resolution.split("x")
-    ]
-    return result_args
+
+    return parser.parse_args()
 
 
 if __name__ == "__main__":
+    # python tests/test_volume.py -p tests/data/vol_pred.h5 -g gt_graph.pkl -m tests/data/vol_no-mask.h5
     args = get_arguments()
-    test_volume(
-        args.seg_path,
-        args.skeleton_path,
-        args.skeleton_unit,
-        args.skeleton_resolution
-    )
+    test_volume(args.pred_path, args.gt_path, args.gt_mask_path)
