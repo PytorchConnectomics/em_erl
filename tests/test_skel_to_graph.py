@@ -1,14 +1,14 @@
 import argparse
 from em_erl.networkx_lite import skel_to_lite
-from em_util.io import read_vol, write_pkl, vol_to_skel
+from em_util.io import read_vol, write_pkl
 
 
-def test_skel_to_graph(skel_path, skel_resolution):
-
+def test_skel_to_graph(skel_path):
+    # input skel: output from kimimaro
     print("Load skeleton")
-    skel = read_vol(skel_path)[0]
+    skel = read_vol(skel_path)
     print("Compute network")
-    return skel_to_lite(skel, skel_resolution)
+    return skel_to_lite(skel)
 
 
 def get_arguments():
@@ -27,27 +27,18 @@ def get_arguments():
         required=True,
     )
     parser.add_argument(
-        "-r",
-        "--skel-resolution",
-        type=str,
-        help="resolution of the ground truth segmentation (zyx-order). e.g., 30,32,32",
-        default="30,32,32",
-    )
-    parser.add_argument(
         "-o",
         "--output-path",
         type=str,
         help="output pickle file path. e.g., gt_graph.pkl",
         default="gt_graph.pkl",
     )
-    result = parser.parse_args()
-    result.seg_resolution = [float(x) for x in result.seg_resolution.split(",")]
-    return result
+    return parser.parse_args()
 
 
 if __name__ == "__main__":
-    # python test_seg_to_graph.py -s tests/data/gt_vol.h5 30,30,30
+    # python tests/test_skel_to_graph.py -s tests/data/gt_skel_kimimaro.pkl -o tests/data/gt_graph.pkl
     args = get_arguments()
     # convert segment into a graph of its skeletons
-    graph = test_skel_to_graph(args.skel_path, args.skel_resolution)
+    graph = test_skel_to_graph(args.skel_path)
     write_pkl(args.output_path, graph)

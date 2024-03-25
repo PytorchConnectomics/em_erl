@@ -251,6 +251,7 @@ def expected_run_length(
         skeleton_erl = 0
         correct_edges_length = 0
         for _, correct_edges in scores.correct_edges.items():
+            # add [0] to make sure the data type is float64
             correct_edges_length = np.sum(
                 [0] + [skeletons.edges[e][edge_length_attribute] for e in correct_edges]
             )

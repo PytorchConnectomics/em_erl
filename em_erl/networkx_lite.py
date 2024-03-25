@@ -20,7 +20,7 @@ class NetworkXGraphLite:
         node_attributes=["skeleton_id", "z", "y", "x"],
         edge_attribute="length",
         node_dtype=np.uint32,
-        edge_dtype=np.uint32,
+        edge_dtype=np.float32,
     ):
         self.node_attributes = sorted(node_attributes)
         self.node_dtype = node_dtype
@@ -188,7 +188,7 @@ def networkx_to_lite(networkx_graph, data_type=np.uint16):
 
 
 def skel_to_lite(
-    skeletons, skeleton_resolution=None, node_type=np.uint16, edge_type=np.float16
+    skeletons, skeleton_resolution=None, node_type=np.uint16, edge_type=np.float32
 ):
     """
     The function `skeleton_to_networkx` converts a skeleton object into a networkx graph, with an option
@@ -225,7 +225,7 @@ def skel_to_lite(
             continue
         node_arr = skeleton.vertices.astype(node_type)
         if skeleton_resolution is not None:
-            node_arr = node_arr * skeleton_resolution.astype(node_type)
+            node_arr = node_arr * np.array(skeleton_resolution).astype(node_type)
 
         num_arr = node_arr.shape[0]
         skel_arr = skeleton_id * np.ones([num_arr, 1], node_type)
