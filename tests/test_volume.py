@@ -1,6 +1,7 @@
 import argparse
-from em_util.io import read_vol
-from em_erl.erl import compute_segment_lut, compute_erl
+from em_util.io import read_vol, write_pkl
+from em_erl.eval import compute_segment_lut, compute_erl_score
+from em_erl.erl import ERLGraph
 
 
 def test_volume(
@@ -9,46 +10,36 @@ def test_volume(
     gt_resolution,
     gt_mask_path="",
     merge_threshold=0,
-    erl_intervals="",
+    erl_intervals=None,
+    verbose=False,
 ):
     print("Load data")
     pred_seg = read_vol(pred_path)
     gt_mask = None if gt_mask_path == "" else read_vol(gt_mask_path)
-    # graph: in physical unit
-    gt_graph = read_vol(gt_path)
+    # erl graph: in physical unit
+    gt_graph = ERLGraph(gt_path)
 
-    print("Compute seg id for each gt skel node")
+    print("Compute seg lookup table for gt skeletons")
     # node position: need voxel unit
-    node_voxel = (gt_graph.get_nodes()[:, 1:] // gt_resolution).astype(int)
+    node_position = gt_graph.get_nodes_position(gt_resolution)
     node_segment_lut, mask_segment_id = compute_segment_lut(
-        pred_seg, node_voxel, gt_mask
+        pred_seg, node_position, gt_mask
     )
 
     print("Compute erl")
-    scores = compute_erl(
-        gt_graph=gt_graph,
+    score = compute_erl_score(
+        erl_graph=gt_graph,
         node_segment_lut=node_segment_lut,
         mask_segment_id=mask_segment_id,
         merge_threshold=merge_threshold,
-        erl_intervals=erl_intervals,
-        return_merge_split_stats=True,
+        verbose=verbose,
     )
+    score.compute_erl(erl_intervals)
+    import pdb
 
-    print(f"{pred_path}\n-----")
-    if erl_intervals is None:
-        # overall evaluation
-        print(f"pred ERL\t: {scores[0][0]:.2f}")
-        print(f"gt ERL\t: {scores[0][1]:.2f}")
-        print(f"#skel\t: {scores[0][2]:d}")
-        print(f"errors\t: {scores[1]}")
-    else:
-        # break-down evaluation based on the skeleton length
-        for i in range(len(erl_intervals) - 1):
-            print(f"gt skel range: {erl_intervals[i]}-{erl_intervals[i+1]}")
-            print(f"pred ERL\t: {scores[0][i, 0]:.2f}")
-            print(f"gt ERL\t: {scores[0][i, 1]:.2f}")
-            print(f"#skel\t: {scores[0][i, 2]:d}")
-        print(f"errors\t: {scores[1]}")
+    pdb.set_trace()
+    score.print_erl()
+    return score
 
 
 def get_arguments():
@@ -100,6 +91,20 @@ def get_arguments():
         help="compute erl for each range. e.g., 0,5000,50000,150000",
         default="",
     )
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        type=lambda x: (str(x).lower() == "true"),
+        help="store detailed info",
+        default=False,
+    )
+    parser.add_argument(
+        "-o",
+        "--output-path",
+        type=str,
+        help="output pickle file path. e.g., erl_score.pkl",
+        default="",
+    )
     result = parser.parse_args()
     result.gt_resolution = [float(x) for x in result.gt_resolution.split(",")]
     result.erl_intervals = (
@@ -111,14 +116,17 @@ def get_arguments():
 
 
 if __name__ == "__main__":
-    # python tests/test_volume.py -p tests/data/vol_pred.h5 -g tests/data/gt_graph.pkl -r 30,30,30 -m tests/data/vol_no-mask.h5
-    # python tests/test_volume.py -p pni_seg_32nm.h5 -g axon_graph.pkl -r 30,32,32 -m axon_no-mask.h5
+    # python tests/test_volume.py -p tests/data/vol_pred.h5 -g tests/data/gt_graph.npz -r 30,30,30 -m tests/data/vol_no-mask.h5
+    # python tests/test_volume.py -p pni_seg_32nm.h5 -g axon_graph.npz -r 30,32,32 -m axon_no-mask_erode2.h5 -i 5000,20000,50000,200000 -v True -t 30 -o axon_score.pkl
     args = get_arguments()
-    test_volume(
+    erl_score = test_volume(
         args.pred_path,
         args.gt_path,
         args.gt_resolution,
         args.gt_mask_path,
         args.merge_threshold,
         args.erl_intervals,
+        args.verbose,
     )
+    if args.output_path != "":
+        write_pkl(args.output_path, erl_score)

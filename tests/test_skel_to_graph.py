@@ -1,14 +1,14 @@
 import argparse
-from em_erl.networkx_lite import skel_to_lite
-from em_util.io import read_vol, write_pkl
+from em_erl.erl import skel_to_erlgraph
+from em_util.io import read_vol
 
 
-def test_skel_to_graph(skel_path):
+def test_skel_to_graph(skel_path, length_threshold=0):
     # input skel: output from kimimaro
     print("Load skeleton")
     skel = read_vol(skel_path)
-    print("Compute network")
-    return skel_to_lite(skel)
+    print("Compute erl graph")
+    return skel_to_erlgraph(skel, length_threshold=length_threshold)
 
 
 def get_arguments():
@@ -30,15 +30,24 @@ def get_arguments():
         "-o",
         "--output-path",
         type=str,
-        help="output pickle file path. e.g., gt_graph.pkl",
-        default="gt_graph.pkl",
+        help="output npz file path. e.g., gt_graph.npz",
+        default="gt_graph.npz",
+    )
+    parser.add_argument(
+        "-l",
+        "--length-threshold",
+        type=int,
+        help="throw away skeletons that are shorter than the threshold",
+        default=0,
     )
     return parser.parse_args()
 
 
 if __name__ == "__main__":
-    # python tests/test_skel_to_graph.py -s tests/data/gt_skel_kimimaro.pkl -o tests/data/gt_graph.pkl
+    # python tests/test_skel_to_graph.py -s tests/data/gt_skel_kimimaro.pkl -o tests/data/gt_graph.npz
+    # python tests/test_skel_to_graph.py -s ~/Desktop/axon_32nm_skel.pkl -o axon_graph.npz -l 5000
     args = get_arguments()
     # convert segment into a graph of its skeletons
-    graph = test_skel_to_graph(args.skel_path)
-    write_pkl(args.output_path, graph)
+    graph = test_skel_to_graph(args.skel_path, args.length_threshold)
+    graph.print_info()
+    graph.save_npz(args.output_path)

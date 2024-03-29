@@ -1,9 +1,9 @@
 import argparse
-from em_erl.networkx_lite import skel_to_lite
-from em_util.io import read_vol, write_pkl, vol_to_skel
+from em_erl.erl import skel_to_erlgraph
+from em_util.io import read_vol, vol_to_skel
 
 
-def test_seg_to_graph(seg_path, seg_resolution, num_thread=1):
+def test_seg_to_graph(seg_path, seg_resolution, length_threshold=0, num_thread=1):
     """
     Test the conversion of a segmentation volume to a graph representation.
 
@@ -22,7 +22,7 @@ def test_seg_to_graph(seg_path, seg_resolution, num_thread=1):
     # skeleton nodes: in physical unit
     skel = vol_to_skel(seg, res=seg_resolution, num_thread=num_thread)
     print("Compute network")
-    return skel_to_lite(skel)
+    return skel_to_erlgraph(skel, length_threshold=length_threshold)
 
 
 def get_arguments():
@@ -53,8 +53,15 @@ def get_arguments():
         "-o",
         "--output-path",
         type=str,
-        help="output pickle file path. e.g., gt_graph.pkl",
-        default="gt_graph.pkl",
+        help="output npz file path. e.g., gt_graph.npz",
+        default="gt_graph.npz",
+    )
+    parser.add_argument(
+        "-l",
+        "--length-threshold",
+        type=int,
+        help="throw away skeletons that are shorter than the threshold",
+        default=0,
     )
     parser.add_argument(
         "-t",
@@ -69,9 +76,12 @@ def get_arguments():
 
 
 if __name__ == "__main__":
-    # python tests/test_seg_to_graph.py -s tests/data/vol_gt.h5 -r 30,30,30 -o tests/data/gt_graph.pkl
+    # python tests/test_seg_to_graph.py -s tests/data/vol_gt.h5 -r 30,30,30 -o tests/data/gt_graph.npz
     args = get_arguments()
 
     # convert segment into a graph of its skeletons
-    graph = test_seg_to_graph(args.seg_path, args.seg_resolution, args.num_thread)
-    write_pkl(args.output_path, graph)
+    graph = test_seg_to_graph(
+        args.seg_path, args.seg_resolution, args.length_threshold, args.num_thread
+    )
+    graph.print_info()
+    graph.save_npz(args.output_path)
