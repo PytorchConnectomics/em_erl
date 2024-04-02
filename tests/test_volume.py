@@ -35,9 +35,6 @@ def test_volume(
         verbose=verbose,
     )
     score.compute_erl(erl_intervals)
-    import pdb
-
-    pdb.set_trace()
     score.print_erl()
     return score
 

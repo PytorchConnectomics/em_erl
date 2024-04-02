@@ -45,7 +45,7 @@ def get_arguments():
 
 if __name__ == "__main__":
     # python tests/test_skel_to_graph.py -s tests/data/gt_skel_kimimaro.pkl -o tests/data/gt_graph.npz
-    # python tests/test_skel_to_graph.py -s ~/Desktop/axon_32nm_skel.pkl -o axon_graph.npz -l 5000
+    # python tests/test_skel_to_graph.py -s ./axon_32nm_skel.pkl -o axon_graph.npz -l 5000
     args = get_arguments()
     # convert segment into a graph of its skeletons
     graph = test_skel_to_graph(args.skel_path, args.length_threshold)
