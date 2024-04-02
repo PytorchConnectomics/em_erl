@@ -4,7 +4,6 @@ Evaluation script for expected run length (ERL)
 
 - Installation
 ```
-# create a new environment
 pip install --editable .
 ```
 
