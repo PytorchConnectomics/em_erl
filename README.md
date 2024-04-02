@@ -9,9 +9,12 @@ pip install --editable .
 ```
 
 # Example
+- `python tests/test_volume.py -p tests/data/vol_pred.h5 -g tests/data/gt_graph.npz -r 30,30,30`
+- `python tests/test_volume.py -p tests/data/vol_pred.h5 -g tests/data/gt_graph.npz -r 30,30,30 -m tests/data/vol_no-mask.h5`
+
 <table>
   <tr align=center>
-    <td>ground truth<br/> (2 seg)</td><td>prediction<br/> (1 false merge and 1 false split)</td><td>no-merge mask</td>
+    <td>Ground Truth<br/> (2 seg)</td><td>Prediction<br/> (1 false merge and 1 false split)</td><td>No-merge Mask</td>
   </tr>
   <tr>
     <td> <img src="tests/figure/test_gt.png" width = 360px></td>
