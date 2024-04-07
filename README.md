@@ -22,7 +22,7 @@ pip install --editable .
 
 - GT: Each of the two axons is around 4&mu;m and the total ERL is 4.275&mu;m.
 - Prediction: One predicted axon is falsely merged with a dendrite. The other two predicted segments are falsely split (around 2&mu;m each).
-- Naive ERL evaluation
+- Naive ERL evaluation (defined in the [FFN paper](https://www.nature.com/articles/s41592-018-0049-4))
   - `python tests/test_volume.py -p tests/data/vol_pred.h5 -g tests/data/gt_graph.npz -r 30,30,30`
   - ❌ The falsely merged segment is considered correct (ERL=4&mu;m), as the ground truth segments do not know the existence of other segments.
   - ✅ The ground truth axon matched with two falsely split segments has ERL=2&mu;m. It agrees with the intuition that 1 split error per 2&mu;m.
