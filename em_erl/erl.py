@@ -158,6 +158,7 @@ def skel_to_erlgraph(
     skeletons,
     skeleton_resolution=None,
     length_threshold=0,
+    sample_ratio=1,
     node_dtype=np.uint32,
     edge_dtype=np.float32,
 ):
@@ -200,6 +201,13 @@ def skel_to_erlgraph(
         graph.skeleton_id = graph.skeleton_id[graph.skeleton_len >= length_threshold]
         graph.edges = [x for x in graph.edges if x is not None]
         graph.skeleton_len = graph.skeleton_len[graph.skeleton_len >= length_threshold]
+    if sample_ratio < 1:
+        # need to subsample the data
+        rand_idx = np.random.permutation(len(graph.skeleton_id))
+        rand_idx = rand_idx[: int(len(graph.skeleton_id) * sample_ratio)]
+        graph.skeleton_id = graph.skeleton_id[rand_idx]
+        graph.edges = [graph.edges[x] for x in rand_idx]
+        graph.skeleton_len = graph.skeleton_len[rand_idx]
 
     return graph
 
