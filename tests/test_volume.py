@@ -115,6 +115,7 @@ def get_arguments():
 if __name__ == "__main__":
     # python tests/test_volume.py -p tests/data/vol_pred.h5 -g tests/data/gt_graph.npz -r 30,30,30 -m tests/data/vol_no-mask.h5
     # python tests/test_volume.py -p pni_seg_32nm.h5 -g axon_graph.npz -r 30,32,32 -m axon_no-mask_erode2.h5 -i 5000,20000,50000,200000 -v True -t 30 -o axon_score.pkl
+    # python tests/test_volume.py -p pni_seg_32nm.h5 -g axon_graph_r01.npz -r 30,32,32 -m axon_no-mask_erode2.h5 -i 5000,20000,50000,200000 -v True -t 30 -o axon_score.pkl
     args = get_arguments()
     erl_score = test_volume(
         args.pred_path,

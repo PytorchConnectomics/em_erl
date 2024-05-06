@@ -153,6 +153,7 @@ def compute_erl_score(
     merged_skeletons = np.unique(
         skeleton_segment[np.isin(skeleton_segment[:, 1], merged_segments), 0]
     )
+
     erl_score.skeleton_erl[merged_skeletons] = 0
     if verbose:
         for i in merged_skeletons:

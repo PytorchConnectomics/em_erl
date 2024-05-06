@@ -1,4 +1,5 @@
 import numpy as np
+from em_util.io import seg_relabel
 
 
 class SkeletonScore:
@@ -166,14 +167,22 @@ def skel_to_erlgraph(
     # else: skeleton nodes are in voxel units
     graph = ERLGraph()
     graph.skeleton_id = np.array(list(skeletons.keys()))
-    graph.skeleton_len = np.zeros(len(graph.skeleton_id))
+    if sample_ratio < 1:
+        # need to subsample the data
+        rand_idx = np.random.permutation(len(graph.skeleton_id))
+        rand_idx = rand_idx[: int(len(graph.skeleton_id) * sample_ratio)]
+        graph.skeleton_id = graph.skeleton_id[rand_idx]
+    skeleton_num = len(graph.skeleton_id)
+    graph.skeleton_len = np.zeros(skeleton_num)
 
     count = 0
-    graph.nodes = [np.zeros([0, 4], node_dtype)] * len(skeletons)
-    graph.edges = [None] * len(skeletons)
+    graph.nodes = [np.zeros([0, 4], node_dtype)] * skeleton_num
+    graph.edges = [None] * skeleton_num
 
     count_skel = 0
-    for i, (_, skeleton) in enumerate(skeletons.items()):
+
+    for i, skeleton_id in enumerate(graph.skeleton_id):
+        skeleton = skeletons[skeleton_id]
         if len(skeleton.edges) == 0:
             continue
         node_arr = skeleton.vertices.astype(node_dtype)
@@ -201,13 +210,6 @@ def skel_to_erlgraph(
         graph.skeleton_id = graph.skeleton_id[graph.skeleton_len >= length_threshold]
         graph.edges = [x for x in graph.edges if x is not None]
         graph.skeleton_len = graph.skeleton_len[graph.skeleton_len >= length_threshold]
-    if sample_ratio < 1:
-        # need to subsample the data
-        rand_idx = np.random.permutation(len(graph.skeleton_id))
-        rand_idx = rand_idx[: int(len(graph.skeleton_id) * sample_ratio)]
-        graph.skeleton_id = graph.skeleton_id[rand_idx]
-        graph.edges = [graph.edges[x] for x in rand_idx]
-        graph.skeleton_len = graph.skeleton_len[rand_idx]
 
     return graph
 
