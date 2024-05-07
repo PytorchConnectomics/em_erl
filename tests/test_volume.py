@@ -8,6 +8,7 @@ def test_volume(
     pred_path,
     gt_path,
     gt_resolution,
+    gt_zrange="",
     gt_mask_path="",
     merge_threshold=0,
     erl_intervals=None,
@@ -15,6 +16,7 @@ def test_volume(
 ):
     print("Load data")
     pred_seg = read_vol(pred_path)
+
     gt_mask = None if gt_mask_path == "" else read_vol(gt_mask_path)
     # erl graph: in physical unit
     gt_graph = ERLGraph(gt_path)
@@ -22,9 +24,20 @@ def test_volume(
     print("Compute seg lookup table for gt skeletons")
     # node position: need voxel unit
     node_position = gt_graph.get_nodes_position(gt_resolution)
+    if gt_zrange != "":
+        # need to trim the gt_graph
+        z_start, z_end = [int(x) for x in gt_zrange.split(",")]
+        ignore_id = (node_position[:, 0] < z_start) * (node_position[:, 0] > z_end)
+        node_position[node_position[:, 0] < z_start, 0] = z_start
+        node_position[node_position[:, 0] > z_end, 0] = z_end
+        if gt_mask is not None:
+            gt_mask = gt_mask[z_start : z_end + 1]
+
     node_segment_lut, mask_segment_id = compute_segment_lut(
         pred_seg, node_position, gt_mask
     )
+    if gt_zrange != "":
+        node_segment_lut[ignore_id] = 0
 
     print("Compute erl")
     score = compute_erl_score(
@@ -66,6 +79,13 @@ def get_arguments():
         type=str,
         help="resolution of the ground truth skeleton (zyx-order). e.g., 30,32,32",
         required=True,
+    )
+    parser.add_argument(
+        "-gz",
+        "--gt-zrange",
+        type=str,
+        help='range of z in the gt. Full range of z if unspecified. Example: "0,979" for the first 980 slices',
+        default="",
     )
     parser.add_argument(
         "-m",
@@ -121,6 +141,7 @@ if __name__ == "__main__":
         args.pred_path,
         args.gt_path,
         args.gt_resolution,
+        args.gt_zrange,
         args.gt_mask_path,
         args.merge_threshold,
         args.erl_intervals,
