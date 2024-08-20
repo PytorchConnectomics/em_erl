@@ -1,4 +1,7 @@
 __pycache__
+build/
+dist/
+.DS_Store
 *.egg-info
 *.pkl
 *.h5
