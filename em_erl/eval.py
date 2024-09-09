@@ -11,19 +11,25 @@ def compute_segment_lut_tile(seg, pts, seg_oset=0, pts_oset=[0,0,0]):
     if seg_oset != 0:
         seg[seg > 0] += seg_oset
     sz = seg.shape
-    ind = (pts[:, 0] >= pts_oset[0]) * (
-        pts[:, 0] < pts_oset[0] + sz[0]
-    )
-    ind = (
-        ind
-        * (pts[:, 1] >= pts_oset[1])
-        * (pts[:, 1] < pts_oset[1] + sz[1])
-    )
-    ind = (
-        ind
-        * (pts[:, 2] >= pts_oset[2])
-        * (pts[:, 2] < pts_oset[2] + sz[2])
-    )
+    ind = np.ones_like(pts[:, 0])
+    if pts_oset[0] > -1:
+        ind = (
+            ind 
+            * (pts[:, 0] >= pts_oset[0]) 
+            * (pts[:, 0] < pts_oset[0] + sz[0])
+        )
+    if pts_oset[1] > -1:
+        ind = (
+            ind
+            * (pts[:, 1] >= pts_oset[1])
+            * (pts[:, 1] < pts_oset[1] + sz[1])
+        )
+    if pts_oset[2] > -1:
+        ind = (
+            ind
+            * (pts[:, 2] >= pts_oset[2])
+            * (pts[:, 2] < pts_oset[2] + sz[2])
+        )
     val = seg[
         pts[ind, 0] - pts_oset[0],
         pts[ind, 1] - pts_oset[1],
@@ -31,6 +37,22 @@ def compute_segment_lut_tile(seg, pts, seg_oset=0, pts_oset=[0,0,0]):
     ]
     return ind, val
 
+def compute_segment_lut_tile_z(
+    seg_path_format, zran, pts, output_path_format, factor=1, dataset=None, seg_oset=0
+):
+    for i, z in enumerate(zran):
+        mkdir(output_path_format, "parent")
+        sn = output_path_format % (z)
+        if not os.path.exists(sn):
+            print(f"computing: {sn}")
+            seg = read_vol(seg_path_format % (z), dataset)
+            if isinstance(seg_oset, list):
+                seg[seg > 0] += seg_oset[i]
+            else:
+                if seg_oset != 0:
+                    seg[seg > 0] += seg_oset
+            ind, val = compute_segment_lut_tile(seg, pts, seg_oset, pts_oset=[z*factor, -1, -1])
+            write_h5(sn, [ind, val], ["ind", "val"])
 
 def compute_segment_lut_tile_zyx(
     seg_path_format, zran, yran, xran, pts, output_path_format, factor=[1, 2048, 2048], dataset=None, seg_oset=0
@@ -58,6 +80,22 @@ def combine_segment_lut_tile(
                 raise f"File not exists: {output_file}"
         else:
             ind, val = read_vol(output_file)
+            if out is None:
+                out = np.zeros(ind.shape).astype(val.dtype)
+            out[ind] = val
+    return out
+
+def combine_segment_lut_tile_z(
+    filename_format, zran, dry_run=False
+):
+    out = None
+    for z in zran:
+        filename = filename_format % z
+        if dry_run:
+            if not os.path.exists(filename):
+                raise f"File not exists: {filename}"
+        else:
+            ind, val = read_vol(filename)
             if out is None:
                 out = np.zeros(ind.shape).astype(val.dtype)
             out[ind] = val

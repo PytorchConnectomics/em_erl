@@ -5,8 +5,8 @@ from erl.data_io import read_pkl, mkdir, read_vol, write_h5, write_pkl
 from erl.eval import (
     compute_segment_lut,
     compute_erl,
-    compute_segment_lut_tile,
-    compute_segment_lut_tile_combine,
+    compute_segment_lut_tile_zyx,
+    combine_segment_lut_tile_zyx,
 )
 from erl.skeleton import node_edge_to_networkx
 from erl.networkx_lite import convert_networkx_to_lite
@@ -35,7 +35,7 @@ def compute_lut_j0126(output_folder, option, seg_folder="", gt_skeleton="", job=
         mkdir(output_folder)
         zran = zran[job[0] :: job[1]]
         pts = read_vol(gt_skeleton)
-        compute_segment_lut_tile(
+        compute_segment_lut_tile_zyx(
             seg_pred_path, zran, yran, xran, pts, seg_lut_path
         )
     elif option == "reduce":
@@ -44,8 +44,8 @@ def compute_lut_j0126(output_folder, option, seg_folder="", gt_skeleton="", job=
             print(f"File exists: ${seg_lut_path}")
         else:
             # check that all files exist
-            _ = compute_segment_lut_tile_combine(zran, yran, xran, seg_lut_path, dry_run=True)
-            out = compute_segment_lut_tile_combine(zran, yran, xran, seg_lut_path)
+            _ = combine_segment_lut_tile_zyx(zran, yran, xran, seg_lut_path, dry_run=True)
+            out = combine_segment_lut_tile_zyx(zran, yran, xran, seg_lut_path)
             write_h5(seg_lut_all_path, out)        
 
 def get_arguments():

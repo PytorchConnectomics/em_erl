@@ -1,5 +1,5 @@
 import numpy as np
-from em_util.io import seg_relabel
+from em_util.seg import seg_relabel
 
 
 class SkeletonScore:
