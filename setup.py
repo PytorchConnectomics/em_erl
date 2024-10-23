@@ -4,7 +4,7 @@ from setuptools import setup, find_packages
 
 def setup_package():
     __version__ = "0.1"
-    url = "https://github.com/PytorchConnectomics/em-erl"
+    url = "https://github.com/PytorchConnectomics/em_erl"
     setup(
         name="em_erl",
         description="Expected run length (ERL) evaluation",
