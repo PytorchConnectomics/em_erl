@@ -1,5 +1,5 @@
 import argparse
-from em_util.io import read_vol, write_pkl
+from em_erl.io import read_vol, write_pkl
 from em_erl.eval import compute_segment_lut, compute_erl_score
 from em_erl.erl import ERLGraph
 

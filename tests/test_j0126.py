@@ -1,7 +1,7 @@
 import os, argparse
 import numpy as np
 import h5py
-from erl.data_io import read_pkl, mkdir, read_vol, write_h5, write_pkl
+from erl.io import read_pkl, mkdir, read_vol, write_h5, write_pkl
 from erl.eval import (
     compute_segment_lut,
     compute_erl,

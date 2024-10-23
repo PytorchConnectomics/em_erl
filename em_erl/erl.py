@@ -1,6 +1,4 @@
 import numpy as np
-from em_util.seg import seg_relabel
-
 
 class SkeletonScore:
     def __init__(self):

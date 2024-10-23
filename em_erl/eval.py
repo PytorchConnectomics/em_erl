@@ -1,6 +1,6 @@
 import os
 import numpy as np
-from em_util.io import read_vol, write_h5, mkdir
+from .io import read_vol, write_h5, mkdir
 from .erl import SkeletonScore, ERLScore
 
 # step 1: compute node_id-segment lookup table from predicted segmemtation and node positions

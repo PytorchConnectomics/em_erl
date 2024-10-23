@@ -12,7 +12,7 @@ def setup_package():
         url=url,
         license="MIT",
         author="Donglai Wei",
-        install_requires=["argparse", "em_util"],
+        install_requires=["argparse"],
         packages=find_packages(),
     )
 
