@@ -1,3 +1,4 @@
+import os, sys
 import numpy as np
 import imageio 
 import pickle
@@ -203,4 +204,38 @@ def write_pkl(filename, content):
                 pickle.dump(val, f)
         else:
             pickle.dump(content, f)
- 
+
+def write_h5(filename, data, dataset="main"):
+    """
+    Write data to an HDF5 file.
+
+    Args:
+        filename (str): The path to the HDF5 file.
+        data (numpy.ndarray or list): The data to write.
+        dataset (str or list, optional): The name or names of the dataset(s) to create. Defaults to "main".
+
+    Returns:
+        None
+
+    Raises:
+        None
+    """
+    fid = h5py.File(filename, "w")
+    if isinstance(data, (list,)):
+        if not isinstance(dataset, (list,)):
+            num_digit = int(np.floor(np.log10(len(data)))) + 1
+            dataset = [('key%0'+str(num_digit)+'d')%x for x in range(len(data))]
+        for i, dd in enumerate(dataset):
+            ds = fid.create_dataset(
+                dd,
+                data[i].shape,
+                compression="gzip",
+                dtype=data[i].dtype,
+            )
+            ds[:] = data[i]
+    else:
+        ds = fid.create_dataset(
+            dataset, data.shape, compression="gzip", dtype=data.dtype
+        )
+        ds[:] = data
+    fid.close()
