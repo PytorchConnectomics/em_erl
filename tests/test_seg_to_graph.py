@@ -1,6 +1,7 @@
 import argparse
 from em_erl.erl import skel_to_erlgraph
-from em_erl.io import read_vol, vol_to_skel
+from em_erl.io import read_vol
+from em_erl.skel import vol_to_skel
 
 
 def test_seg_to_graph(seg_path, seg_resolution, length_threshold=0, num_thread=1):

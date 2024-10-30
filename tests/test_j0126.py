@@ -125,7 +125,6 @@ def compute_skeleton_j0126(gt_skeleton, output_folder):
 
         
 if __name__ == "__main__":
-    # python test_axonEM.py -s db/30um_human/axon_release/gt_16nm.h5 -g db/30um_human/axon_release/gt_16nm_skel_stats.p -c 1
     args = get_arguments()
 
     if args.task == 0:
