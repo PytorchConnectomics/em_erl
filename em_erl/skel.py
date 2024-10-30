@@ -49,7 +49,7 @@ def cable_length(vertices, edges, res = [1,1,1]):
     dist = np.sqrt(dist)
     return np.sum(dist)
 
-def skel2Len(skels, res=[1,1,1]):
+def skel_to_length(skels, res=[1,1,1]):
     lid = np.fromiter(skels.keys(), dtype=int)
     l0 = np.array([cable_length(skels[x].vertices, skels[x].edges, res) for x in lid])
     return np.vstack([lid,l0]).T
