@@ -174,7 +174,7 @@ def skel_to_erlgraph(
     graph.skeleton_len = np.zeros(skeleton_num)
 
     count = 0
-    graph.nodes = [np.zeros([0, 4], node_dtype)] * skeleton_num
+    graph.nodes = [np.zeros([0, 4], node_dtype) for _ in range(skeleton_num)]
     graph.edges = [None] * skeleton_num
 
     count_skel = 0

@@ -62,7 +62,7 @@ def read_vol(filename, dataset=None):
         # transpose it to zyx
         out = out.transpose(range(out.ndim)[::-1])
     else:
-        raise f"Can't read the file type of {filename}"
+        raise ValueError(f"Can't read the file type of {filename}")
     return out
 
 def read_image(filename, image_type="image", ratio=None, resize_order=None, data_type="2d", crop=None):
@@ -82,6 +82,7 @@ def read_image(filename, image_type="image", ratio=None, resize_order=None, data
     Raises:
         AssertionError: If the ratio dimensions do not match the image dimensions.
     """
+    from scipy.ndimage import zoom
     if data_type == "2d":
         # assume the image of the size M x N x C
         image = imageio.imread(filename)
@@ -220,6 +221,7 @@ def write_h5(filename, data, dataset="main"):
     Raises:
         None
     """
+    import h5py
     fid = h5py.File(filename, "w")
     if isinstance(data, (list,)):
         if not isinstance(dataset, (list,)):

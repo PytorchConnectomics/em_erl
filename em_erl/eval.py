@@ -7,7 +7,9 @@ from .erl import SkeletonScore, ERLScore
 # step 2: compute the ERL from the lookup table and the gt graph
 # graph: networkx by default. To save memory for grand-challenge evaluation, we use netowrkx_lite
 
-def compute_segment_lut_tile(seg, pts, seg_oset=0, pts_oset=[0,0,0]):
+def compute_segment_lut_tile(seg, pts, seg_oset=0, pts_oset=None):
+    if pts_oset is None:
+        pts_oset = [0, 0, 0]
     if seg_oset != 0:
         seg[seg > 0] += seg_oset
     sz = seg.shape
@@ -55,8 +57,10 @@ def compute_segment_lut_tile_z(
             write_h5(sn, [ind, val], ["ind", "val"])
 
 def compute_segment_lut_tile_zyx(
-    seg_path_format, zran, yran, xran, pts, output_path_format, factor=[1, 2048, 2048], dataset=None, seg_oset=0
+    seg_path_format, zran, yran, xran, pts, output_path_format, factor=None, dataset=None, seg_oset=0
 ):
+    if factor is None:
+        factor = [1, 2048, 2048]
     for z in zran:
         mkdir(output_path_format % (z, 0, 0), "parent")
         for y in yran:
@@ -77,7 +81,7 @@ def combine_segment_lut_tile(
     for output_file in output_files:
         if dry_run:
             if not os.path.exists(output_file):
-                raise f"File not exists: {output_file}"
+                raise FileNotFoundError(f"File not exists: {output_file}")
         else:
             ind, val = read_vol(output_file)
             if out is None:
@@ -93,7 +97,7 @@ def combine_segment_lut_tile_z(
         filename = filename_format % z
         if dry_run:
             if not os.path.exists(filename):
-                raise f"File not exists: {filename}"
+                raise FileNotFoundError(f"File not exists: {filename}")
         else:
             ind, val = read_vol(filename)
             if out is None:
@@ -111,7 +115,7 @@ def combine_segment_lut_tile_zyx(
                 sn = output_path_format % (z, y, x)
                 if dry_run:
                     if not os.path.exists(sn):
-                        raise f"File not exists: {sn}"
+                        raise FileNotFoundError(f"File not exists: {sn}")
                 else:
                     ind, val = read_vol(sn)
                     if out is None:
@@ -155,7 +159,7 @@ def compute_segment_lut(
         # read segment by chunk (when memory is limited)
         assert ".h5" in segment
         node_lut = np.zeros(node_position.shape[0], data_type)
-        mask_id = [[]] * chunk_num
+        mask_id = [[] for _ in range(chunk_num)]
         start_z = 0
         for chunk_id in range(chunk_num):
             seg = read_vol(segment, None, chunk_id, chunk_num)
@@ -276,7 +280,7 @@ def compute_erl_score(
         ).sum()
         if verbose:
             # number of edges with background nodes
-            erl_score.skeleton_score[i].ommitted = (segment == 0).max(axis=1).sum()
+            erl_score.skeleton_score[i].omitted = (segment == 0).max(axis=1).sum()
             # number of split edges
             erl_score.skeleton_score[i].split = (segment[:, 0] != segment[:, 1]).sum()
             erl_score.skeleton_score[i].correct_seg = correct_seg

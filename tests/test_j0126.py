@@ -23,7 +23,7 @@ def get_file_path(folder, name):
         return os.path.join(folder, "%04d", "%d_%d.h5")
     elif name == 'seg_lut_all':
         return os.path.join(folder, "seg_lut_all.h5")    
-    raise f"File not found: {name}"
+    raise ValueError(f"File not found: {name}")
 
 def compute_lut_j0126(output_folder, option, seg_folder="", gt_skeleton="", job=[0, 1]):
     seg_lut_path = get_file_path(output_folder, 'seg_lut') 
