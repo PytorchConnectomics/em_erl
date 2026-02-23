@@ -3,7 +3,7 @@ from em_erl.erl import skel_to_erlgraph
 from em_erl.io import read_vol
 
 
-def test_skel_to_graph(skel_path, length_threshold=0, sample_ratio=1):
+def run_skel_to_graph(skel_path, length_threshold=0, sample_ratio=1):
     # input skel: output from kimimaro
     print("Load skeleton")
     skel = read_vol(skel_path)
@@ -13,7 +13,7 @@ def test_skel_to_graph(skel_path, length_threshold=0, sample_ratio=1):
     )
 
 
-def get_arguments():
+def parse_args():
     """
     The function `get_arguments()` is used to parse command line arguments for the evaluation on AxonEM.
     :return: The function `get_arguments` returns the parsed command-line arguments.
@@ -52,11 +52,15 @@ def get_arguments():
     return parser.parse_args()
 
 
-if __name__ == "__main__":
-    # python tests/test_skel_to_graph.py -s tests/data/gt_skel_kimimaro.pkl -o tests/data/gt_graph.npz
-    # python tests/test_skel_to_graph.py -s ./axon_32nm_skel.pkl -o axon_graph_r01.npz -l 5000 -r 0.1
-    args = get_arguments()
+def main():
+    # python scripts/skel_to_graph.py -s tests/data/gt_skel_kimimaro.pkl -o tests/data/gt_graph.npz
+    # python scripts/skel_to_graph.py -s ./axon_32nm_skel.pkl -o axon_graph_r01.npz -l 5000 -r 0.1
+    args = parse_args()
     # convert segment into a graph of its skeletons
-    graph = test_skel_to_graph(args.skel_path, args.length_threshold, args.sample_ratio)
+    graph = run_skel_to_graph(args.skel_path, args.length_threshold, args.sample_ratio)
     graph.print_info()
     graph.save_npz(args.output_path)
+
+
+if __name__ == "__main__":
+    main()

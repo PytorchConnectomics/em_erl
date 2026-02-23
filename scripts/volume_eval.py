@@ -4,7 +4,7 @@ from em_erl.eval import compute_segment_lut, compute_erl_score
 from em_erl.erl import ERLGraph
 
 
-def test_volume(
+def run_volume_eval(
     pred_path,
     gt_path,
     gt_resolution,
@@ -19,7 +19,7 @@ def test_volume(
 
     gt_mask = None if gt_mask_path == "" else read_vol(gt_mask_path)
     # erl graph: in physical unit
-    gt_graph = ERLGraph(gt_path)
+    gt_graph = ERLGraph.from_npz(gt_path)
 
     print("Compute seg lookup table for gt skeletons")
     # node position: need voxel unit
@@ -27,7 +27,7 @@ def test_volume(
     if gt_zrange != "":
         # need to trim the gt_graph
         z_start, z_end = [int(x) for x in gt_zrange.split(",")]
-        ignore_id = (node_position[:, 0] < z_start) * (node_position[:, 0] > z_end)
+        ignore_id = (node_position[:, 0] < z_start) | (node_position[:, 0] > z_end)
         node_position[node_position[:, 0] < z_start, 0] = z_start
         node_position[node_position[:, 0] > z_end, 0] = z_end
         if gt_mask is not None:
@@ -52,7 +52,7 @@ def test_volume(
     return score
 
 
-def get_arguments():
+def parse_args():
     """
     The `get_arguments` function is used to parse command line arguments for the ERL evaluation on small
     volume.
@@ -132,12 +132,12 @@ def get_arguments():
     return result
 
 
-if __name__ == "__main__":
-    # python tests/test_volume.py -p tests/data/vol_pred.h5 -g tests/data/gt_graph.npz -r 30,30,30 -m tests/data/vol_no-mask.h5
-    # python tests/test_volume.py -p pni_seg_32nm.h5 -g axon_graph.npz -r 30,32,32 -m axon_no-mask_erode2.h5 -i 5000,20000,50000,200000 -v True -t 30 -o axon_score.pkl
-    # python tests/test_volume.py -p pni_seg_32nm.h5 -g axon_graph_r01.npz -r 30,32,32 -m axon_no-mask_erode2.h5 -i 5000,20000,50000,200000 -v True -t 30 -o axon_score.pkl
-    args = get_arguments()
-    erl_score = test_volume(
+def main():
+    # python scripts/volume_eval.py -p tests/data/vol_pred.h5 -g tests/data/gt_graph.npz -r 30,30,30 -m tests/data/vol_no-mask.h5
+    # python scripts/volume_eval.py -p pni_seg_32nm.h5 -g axon_graph.npz -r 30,32,32 -m axon_no-mask_erode2.h5 -i 5000,20000,50000,200000 -v True -t 30 -o axon_score.pkl
+    # python scripts/volume_eval.py -p pni_seg_32nm.h5 -g axon_graph_r01.npz -r 30,32,32 -m axon_no-mask_erode2.h5 -i 5000,20000,50000,200000 -v True -t 30 -o axon_score.pkl
+    args = parse_args()
+    erl_score = run_volume_eval(
         args.pred_path,
         args.gt_path,
         args.gt_resolution,
@@ -149,3 +149,7 @@ if __name__ == "__main__":
     )
     if args.output_path != "":
         write_pkl(args.output_path, erl_score)
+
+
+if __name__ == "__main__":
+    main()

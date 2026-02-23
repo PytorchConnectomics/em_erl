@@ -4,7 +4,7 @@ from em_erl.io import read_vol
 from em_erl.skel import vol_to_skel
 
 
-def test_seg_to_graph(seg_path, seg_resolution, length_threshold=0, num_thread=1):
+def run_seg_to_graph(seg_path, seg_resolution, length_threshold=0, num_thread=1):
     """
     Test the conversion of a segmentation volume to a graph representation.
 
@@ -26,7 +26,7 @@ def test_seg_to_graph(seg_path, seg_resolution, length_threshold=0, num_thread=1
     return skel_to_erlgraph(skel, length_threshold=length_threshold)
 
 
-def get_arguments():
+def parse_args():
     """
     Get command line arguments for converting ground truth segmentation to a graph of skeleton.
 
@@ -76,13 +76,17 @@ def get_arguments():
     return result
 
 
-if __name__ == "__main__":
-    # python tests/test_seg_to_graph.py -s tests/data/vol_gt.h5 -r 30,30,30 -o tests/data/gt_graph.npz
-    args = get_arguments()
+def main():
+    # python scripts/seg_to_graph.py -s tests/data/vol_gt.h5 -r 30,30,30 -o tests/data/gt_graph.npz
+    args = parse_args()
 
     # convert segment into a graph of its skeletons
-    graph = test_seg_to_graph(
+    graph = run_seg_to_graph(
         args.seg_path, args.seg_resolution, args.length_threshold, args.num_thread
     )
     graph.print_info()
     graph.save_npz(args.output_path)
+
+
+if __name__ == "__main__":
+    main()
