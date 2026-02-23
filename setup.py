@@ -12,7 +12,18 @@ def setup_package():
         url=url,
         license="MIT",
         author="Donglai Wei",
-        install_requires=["argparse"],
+        python_requires=">=3.7",
+        install_requires=[
+            "numpy",
+            "imageio",
+        ],
+        extras_require={
+            "h5": ["h5py"],
+            "zarr": ["zarr"],
+            "cloud": ["cloud-volume"],
+            "skel": ["kimimaro"],
+            "all": ["h5py", "zarr", "cloud-volume", "kimimaro"],
+        },
         packages=find_packages(),
     )
 

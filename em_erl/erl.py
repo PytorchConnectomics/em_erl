@@ -120,31 +120,25 @@ class ERLGraph:
         return position.astype(int)
 
     def load_npz(self, input_file):
-        """
-        The function `load_npz` loads node and edge data from npz files and initializes viewers.
-
-        :param node_npz_file: The parameter `node_npz_file` is the file path to the .npz file that
-        contains the data for the nodes
-        :param edge_npz_file: The `edge_npz_file` parameter is a file path to a NumPy compressed sparse
-        matrix file (.npz) that contains the edge data
-        """
+        """Load node and edge data from an npz file."""
         data = np.load(input_file)
-        self.edges = [None] * (len(data.keys()) - 3)
-        for i, key in enumerate(data):
-            if i == 0:
-                self.skeleton_id = data[key]
-            elif i == 1:
-                self.skeleton_len = data[key]
-            elif i == 2:
-                self.nodes = data[key]
-            else:
-                self.edges[i - 3] = data[key]
+        self.skeleton_id = data["skeleton_id"]
+        self.skeleton_len = data["skeleton_len"]
+        self.nodes = data["nodes"]
+        edge_keys = sorted(k for k in data.keys() if k.startswith("edges_"))
+        self.edges = [data[k] for k in edge_keys]
 
     def save_npz(self, output_file):
         assert self.nodes is not None
         assert self.edges is not None
-        output = [self.skeleton_id] + [self.skeleton_len] + [self.nodes] + self.edges
-        np.savez_compressed(output_file, *output)
+        data = {
+            "skeleton_id": self.skeleton_id,
+            "skeleton_len": self.skeleton_len,
+            "nodes": self.nodes,
+        }
+        for i, edge in enumerate(self.edges):
+            data[f"edges_{i}"] = edge
+        np.savez_compressed(output_file, **data)
 
     def print_info(self):
         print(f"Number of skeletons: {len(self.skeleton_id)}")
@@ -174,7 +168,7 @@ def skel_to_erlgraph(
     graph.skeleton_len = np.zeros(skeleton_num)
 
     count = 0
-    graph.nodes = [np.zeros([0, 4], node_dtype)] * skeleton_num
+    graph.nodes = [np.zeros([0, 4], node_dtype) for _ in range(skeleton_num)]
     graph.edges = [None] * skeleton_num
 
     count_skel = 0
@@ -210,47 +204,3 @@ def skel_to_erlgraph(
         graph.skeleton_len = graph.skeleton_len[graph.skeleton_len >= length_threshold]
 
     return graph
-
-
-def convert_networkx(self, nx_graph):
-    """
-    The function loads a graph into the object, ensuring that the graph nodes have the same
-    attributes and storing the node and edge data in appropriate data structures.
-
-    :param graph: The `graph` parameter is an object that represents a graph. It contains
-    information about the nodes and edges of the graph
-    """
-    node_attributes = (["skeleton_id", "z", "y", "x"],)
-    edge_attributes = (["length", "e1", "e2"],)
-    assert len(nx_graph.nodes) > 0
-    # assert every node has the same attributes
-    assert list(nx_graph.nodes) == list(range(len(nx_graph.nodes)))
-
-    nodes = {key: [] for key in self.node_attributes}
-
-    minval = np.inf
-    maxval = 0
-    for node in nx_graph.nodes:
-        node = nx_graph.nodes[node]
-        for key in self.node_attributes:
-            assert key in node
-            nodes[key].append(node[key])
-            maxval = max(maxval, node[key])
-            minval = min(minval, node[key])
-    assert minval >= np.iinfo(self.node_dtype).min
-    assert maxval <= np.iinfo(self.node_dtype).max
-    assert len({len(nodes[key]) for key in nodes}) == 1
-
-    self._nodes = np.stack(
-        [np.array(nodes[key]) for key in self.node_attributes], axis=1
-    ).astype(self.node_dtype)
-
-    edges = sp.dok_matrix(
-        (len(nx_graph.nodes), len(nx_graph.nodes)), dtype=self.edge_dtype
-    )
-    for edge_0, edge_1, data in nx_graph.edges(data=True):
-        edge = tuple(sorted([edge_0, edge_1]))
-        edges[edge] = data[self.edge_attribute] if self.edge_attribute in data else -1
-
-    self._edges = edges
-    self.init_viewers()
