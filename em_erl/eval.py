@@ -74,9 +74,8 @@ def compute_segment_lut_tile_zyx(
                     ind, val = compute_segment_lut_tile(seg, pts, seg_oset, pts_oset=[z,y,x]*np.array(factor))
                     write_h5(sn, [ind, val], ["ind", "val"])
 
-def combine_segment_lut_tile(
-    output_files, dry_run=False
-):
+def _combine_lut_from_files(output_files, dry_run=False):
+    """Combine LUT results from a list of file paths."""
     out = None
     for output_file in output_files:
         if dry_run:
@@ -85,43 +84,20 @@ def combine_segment_lut_tile(
         else:
             ind, val = read_vol(output_file)
             if out is None:
-                out = np.zeros(ind.shape).astype(val.dtype)
+                out = np.zeros(ind.shape, dtype=val.dtype)
             out[ind] = val
     return out
 
-def combine_segment_lut_tile_z(
-    filename_format, zran, dry_run=False
-):
-    out = None
-    for z in zran:
-        filename = filename_format % z
-        if dry_run:
-            if not os.path.exists(filename):
-                raise FileNotFoundError(f"File not exists: {filename}")
-        else:
-            ind, val = read_vol(filename)
-            if out is None:
-                out = np.zeros(ind.shape).astype(val.dtype)
-            out[ind] = val
-    return out
+def combine_segment_lut_tile(output_files, dry_run=False):
+    return _combine_lut_from_files(output_files, dry_run)
 
-def combine_segment_lut_tile_zyx(
-    zran, yran, xran, output_path_format, dry_run=False
-):
-    out = None
-    for z in zran:
-        for y in yran:
-            for x in xran:
-                sn = output_path_format % (z, y, x)
-                if dry_run:
-                    if not os.path.exists(sn):
-                        raise FileNotFoundError(f"File not exists: {sn}")
-                else:
-                    ind, val = read_vol(sn)
-                    if out is None:
-                        out = np.zeros(ind.shape).astype(val.dtype)
-                    out[ind] = val
-    return out
+def combine_segment_lut_tile_z(filename_format, zran, dry_run=False):
+    files = [filename_format % z for z in zran]
+    return _combine_lut_from_files(files, dry_run)
+
+def combine_segment_lut_tile_zyx(zran, yran, xran, output_path_format, dry_run=False):
+    files = [output_path_format % (z, y, x) for z in zran for y in yran for x in xran]
+    return _combine_lut_from_files(files, dry_run)
 
 
 def compute_segment_lut(

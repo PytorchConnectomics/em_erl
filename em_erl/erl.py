@@ -120,31 +120,25 @@ class ERLGraph:
         return position.astype(int)
 
     def load_npz(self, input_file):
-        """
-        The function `load_npz` loads node and edge data from npz files and initializes viewers.
-
-        :param node_npz_file: The parameter `node_npz_file` is the file path to the .npz file that
-        contains the data for the nodes
-        :param edge_npz_file: The `edge_npz_file` parameter is a file path to a NumPy compressed sparse
-        matrix file (.npz) that contains the edge data
-        """
+        """Load node and edge data from an npz file."""
         data = np.load(input_file)
-        self.edges = [None] * (len(data.keys()) - 3)
-        for i, key in enumerate(data):
-            if i == 0:
-                self.skeleton_id = data[key]
-            elif i == 1:
-                self.skeleton_len = data[key]
-            elif i == 2:
-                self.nodes = data[key]
-            else:
-                self.edges[i - 3] = data[key]
+        self.skeleton_id = data["skeleton_id"]
+        self.skeleton_len = data["skeleton_len"]
+        self.nodes = data["nodes"]
+        edge_keys = sorted(k for k in data.keys() if k.startswith("edges_"))
+        self.edges = [data[k] for k in edge_keys]
 
     def save_npz(self, output_file):
         assert self.nodes is not None
         assert self.edges is not None
-        output = [self.skeleton_id] + [self.skeleton_len] + [self.nodes] + self.edges
-        np.savez_compressed(output_file, *output)
+        data = {
+            "skeleton_id": self.skeleton_id,
+            "skeleton_len": self.skeleton_len,
+            "nodes": self.nodes,
+        }
+        for i, edge in enumerate(self.edges):
+            data[f"edges_{i}"] = edge
+        np.savez_compressed(output_file, **data)
 
     def print_info(self):
         print(f"Number of skeletons: {len(self.skeleton_id)}")
