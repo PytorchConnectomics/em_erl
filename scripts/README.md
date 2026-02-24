@@ -1,25 +1,50 @@
-Reproducing FFN evaluation result (j0126_workflow.py)
-----
-[paper](https://www.nature.com/articles/s41592-018-0049-4), [data from the paper](https://storage.googleapis.com/j0126-nature-methods-data/GgwKmcKgrcoNxJccKuGIzRnQqfit9hnfK1ctZzNbnuU/README.txt)
-- Data download (our processed version)
-    - GT skeleton: [test (50 neurons)](https://huggingface.co/datasets/pytc/zebrafinch-j0126/blob/main/test_50_skeletons.h5), [validation (12 neurons)](https://huggingface.co/datasets/pytc/zebrafinch-j0126/blob/main/valid_12_skeletons.h5)
-  
-    - FFN segmentation: [part 1](), [part 2]()
+# Scripts
 
-    - (optional) training data: [33 subvolumes](https://huggingface.co/datasets/pytc/zebrafinch-j0126/blob/main/j0126-train-33vol.zip)
-- Run script
-```
-# unzip FFN segmentation: XX/ffn_agg_20-10-10/
-# gt skeleton file: YY/test_50_skeletons.h5
-# step 0: convert gt skeleton into networkx-lite graph
-python j0126_workflow.py --seg-folder XX/ffn_agg_20-10-10/ --gt-skeleton YY/test_50_skeletons.h5 --task 0
+## J0126 tiled workflow (`j0126_workflow.py`)
 
-# step 1: compute seg id for each skeleton node for each segment tile (for parallellism, use `--job ${job_id},${job_num}`) 
-python j0126_workflow.py --seg-folder XX/ffn_agg_20-10-10/ --gt-skeleton YY/test_50_skeletons.h5 --task 1
+References:
+- [FFN paper](https://www.nature.com/articles/s41592-018-0049-4)
+- [J0126 data README](https://storage.googleapis.com/j0126-nature-methods-data/GgwKmcKgrcoNxJccKuGIzRnQqfit9hnfK1ctZzNbnuU/README.txt)
 
-# step 2: combine results from step 1 into one file 
-python j0126_workflow.py --seg-folder XX/ffn_agg_20-10-10/ --gt-skeleton YY/test_50_skeletons.h5 --task 2
+Notes:
+- The workflow builds a ground-truth `ERLGraph` as `gt_graph.npz` (flat-array schema).
+- Large-volume LUT mapping is split into `map-lut` and `reduce-lut` for parallel execution.
 
-# step 3: compute erl
-python j0126_workflow.py --seg-folder XX/ffn_agg_20-10-10/ --gt-skeleton YY/test_50_skeletons.h5 --task 3
+### Data (processed examples)
+- GT skeletons:
+  - [test (50 neurons)](https://huggingface.co/datasets/pytc/zebrafinch-j0126/blob/main/test_50_skeletons.h5)
+  - [validation (12 neurons)](https://huggingface.co/datasets/pytc/zebrafinch-j0126/blob/main/valid_12_skeletons.h5)
+- FFN segmentation:
+  - `seg_folder/%04d/%d_%d.h5` tile layout expected by `j0126_workflow.py`
+- Optional training data:
+  - [33 subvolumes](https://huggingface.co/datasets/pytc/zebrafinch-j0126/blob/main/j0126-train-33vol.zip)
+
+### Usage
+```bash
+# Example paths:
+#   segmentation tiles: XX/ffn_agg_20-10-10/
+#   gt skeleton file:   YY/test_50_skeletons.h5
+#   evaluation folder:  ZZ/j0126_eval/
+
+# 1) Prepare GT artifacts (exports stacked vertices + builds gt_graph.npz)
+python scripts/j0126_workflow.py prepare-gt \
+  -g YY/test_50_skeletons.h5 \
+  -o ZZ/j0126_eval
+
+# 2) Map segmentation tile ids to GT vertices (parallelizable by shard)
+python scripts/j0126_workflow.py map-lut \
+  -s XX/ffn_agg_20-10-10 \
+  -o ZZ/j0126_eval \
+  -j 0,8
+
+# Repeat step 2 for shards 1,8 ... 7,8
+
+# 3) Reduce all tile LUT outputs into seg_lut_all.h5
+python scripts/j0126_workflow.py reduce-lut \
+  -o ZZ/j0126_eval
+
+# 4) Compute ERL
+python scripts/j0126_workflow.py score \
+  -o ZZ/j0126_eval \
+  -mt 50
 ```

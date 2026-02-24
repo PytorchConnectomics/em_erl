@@ -11,6 +11,10 @@ pip install --editable .
   - `ERLGraph` is stored as a compressed `.npz` file (current schema uses flat arrays with `edge_ptr`).
   - Load with `ERLGraph.from_npz(...)`. Legacy `.npz` graphs created by older versions are auto-converted on load.
 
+- Key improvements over the original ERL code
+  - `no-merge`: specify non-merging regions (for example, different semantic classes) with a mask, so false merges into forbidden regions are counted correctly.
+  - merge tolerance (merge percentage / threshold): allow minor false-merge contacts instead of immediately forcing a skeleton score to `0`. In this implementation, this is controlled by `--merge-threshold` (voxel-count threshold).
+
 # Example
 <table>
   <tr align=center>
@@ -36,16 +40,16 @@ pip install --editable .
   - ✅ The falsely merged segment is considered wrong, as it merges with the `no-merge` mask. The corresponding gt segment has ERL=0&mu;m.
   - ✅ The falsely split segment is the same as above.
   - The total ERL=1.176&mu;m is reasonable.
+- Merge-tolerant false-merge handling (`--merge-threshold`)
+  - `python scripts/volume_eval.py -p <pred.h5> -g <gt_graph.npz> -r 30,30,30 -m <no_merge_mask.h5> -t 30`
+  - Small accidental merge contacts below the threshold are tolerated, instead of harshly zeroing the skeleton score for tiny false merges.
 
 - Graph conversion helpers
   - From segmentation volume to ERL graph: `python scripts/seg_to_graph.py -s tests/data/vol_gt.h5 -r 30,30,30 -o tests/data/gt_graph.npz`
   - From kimimaro skeleton pickle to ERL graph: `python scripts/skel_to_graph.py -s tests/data/gt_skel_kimimaro.pkl -o tests/data/gt_graph.npz`
 
 - J0126 tiled workflow (large-volume evaluation)
-  - Prepare GT artifacts (export vertices + build `ERLGraph` NPZ): `python scripts/j0126_workflow.py prepare-gt -g <gt_skeleton.h5> -o <eval_dir>`
-  - Map per-tile segment LUT (parallelizable shards): `python scripts/j0126_workflow.py map-lut -s <seg_folder> -o <eval_dir> -j 0,8`
-  - Reduce per-tile LUTs: `python scripts/j0126_workflow.py reduce-lut -o <eval_dir>`
-  - Compute ERL from `gt_graph.npz` and combined LUT: `python scripts/j0126_workflow.py score -o <eval_dir> -mt 50`
+  - See `scripts/README.md` for the full large-volume J0126 workflow (`prepare-gt`, `map-lut`, `reduce-lut`, `score`).
 
 
 
