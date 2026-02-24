@@ -1,6 +1,10 @@
+import inspect
 from dataclasses import dataclass
 
 import numpy as np
+
+
+_DATACLASS_KWARGS = {"slots": True} if "slots" in inspect.signature(dataclass).parameters else {}
 
 
 class SkeletonScore:
@@ -98,7 +102,7 @@ class ERLScore:
             print("-----------------")
 
 
-@dataclass(slots=True)
+@dataclass(**_DATACLASS_KWARGS)
 class ERLGraph:
     """Compact skeleton graph representation with flat edge arrays."""
 
