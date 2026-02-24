@@ -21,24 +21,17 @@ Notes:
 #   evaluation folder:  ZZ/j0126_eval/
 
 # 1) Prepare GT artifacts (exports stacked vertices + builds gt_graph.npz)
-python scripts/j0126_workflow.py prepare-gt \
-  -g YY/test_50_skeletons.h5 \
-  -o ZZ/j0126_eval
+python scripts/j0126_workflow.py prepare-gt -g YY/test_50_skeletons.h5 -o ZZ/j0126_eval
 
 # 2) Map segmentation tile ids to GT vertices (parallelizable by shard)
-python scripts/j0126_workflow.py map-lut \
-  -s XX/ffn_agg_20-10-10 \
-  -o ZZ/j0126_eval \
-  -j 0,8
+# run in parallel for shards 1,8 ... 7,8
+python scripts/j0126_workflow.py map-lut -s XX/ffn_agg_20-10-10 -o ZZ/j0126_eval -j 0,8
 
-# Repeat step 2 for shards 1,8 ... 7,8
+
 
 # 3) Reduce all tile LUT outputs into seg_lut_all.h5
-python scripts/j0126_workflow.py reduce-lut \
-  -o ZZ/j0126_eval
+python scripts/j0126_workflow.py reduce-lut -o ZZ/j0126_eval
 
 # 4) Compute ERL
-python scripts/j0126_workflow.py score \
-  -o ZZ/j0126_eval \
-  -mt 50
+python scripts/j0126_workflow.py score -o ZZ/j0126_eval
 ```
