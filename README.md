@@ -1,8 +1,14 @@
 # erl
 Evaluation script for expected run length (ERL)
 
+## Highlights
+- Efficient implementation: more than 10x speed up than [funlib implementation](https://github.com/funkelab/funlib.evaluate/blob/master/funlib/evaluate/run_length.py)
+- Refined ERL definition (backward compatible):
+    - `no-merge`: specify non-merging regions (for example, different semantic classes) with a mask, so false merges into forbidden regions are counted correctly.
+    - `--merge-threshold`: specify merge tolerance (merge percentage / voxel-count threshold): allow minor false-merge contacts instead of immediately forcing a skeleton score to `0`.
+- Reproduced FFN's result on j0126 dataset ([Januszewski et. al 2018](https://www.nature.com/articles/s41592-018-0049-4)): `scripts/README.md` 
 
-- Installation
+## Installation
   - Python `>=3.10` is required.
 ```
 conda create -n erl-eval python=3.10 -y
@@ -10,15 +16,7 @@ conda activate erl-eval
 pip install --editable .
 ```
 
-- Ground-truth graph format
-  - `ERLGraph` is stored as a compressed `.npz` file (current schema uses flat arrays with `edge_ptr`).
-  - Load with `ERLGraph.from_npz(...)`. Legacy `.npz` graphs created by older versions are auto-converted on load.
-
-- Key improvements over the original ERL code
-  - `no-merge`: specify non-merging regions (for example, different semantic classes) with a mask, so false merges into forbidden regions are counted correctly.
-  - merge tolerance (merge percentage / threshold): allow minor false-merge contacts instead of immediately forcing a skeleton score to `0`. In this implementation, this is controlled by `--merge-threshold` (voxel-count threshold).
-
-# Example
+## Example
 <table>
   <tr align=center>
     <td>Ground Truth<br/> (2 seg)</td><td>Prediction<br/> (1 false merge and 1 false split)</td><td>No-merge Mask</td>
@@ -46,15 +44,6 @@ pip install --editable .
 - Merge-tolerant false-merge handling (`--merge-threshold`)
   - `python scripts/volume_eval.py -p <pred.h5> -g <gt_graph.npz> -r 30,30,30 -m <no_merge_mask.h5> -t 30`
   - Small accidental merge contacts below the threshold are tolerated, instead of harshly zeroing the skeleton score for tiny false merges.
-
-- Graph conversion helpers
-  - From segmentation volume to ERL graph: `python scripts/seg_to_graph.py -s tests/data/vol_gt.h5 -r 30,30,30 -o tests/data/gt_graph.npz`
-  - From kimimaro skeleton pickle to ERL graph: `python scripts/skel_to_graph.py -s tests/data/gt_skel_kimimaro.pkl -o tests/data/gt_graph.npz`
-
-- J0126 tiled workflow (large-volume evaluation)
-  - See `scripts/README.md` for the full large-volume J0126 workflow (`prepare-gt`, `map-lut`, `reduce-lut`, `score`).
-
-
 
 
 
