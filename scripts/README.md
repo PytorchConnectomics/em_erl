@@ -27,8 +27,6 @@ python scripts/j0126_workflow.py prepare-gt -g YY/test_50_skeletons.h5 -o ZZ/j01
 # run in parallel for shards 1,8 ... 7,8
 python scripts/j0126_workflow.py map-lut -s XX/ffn_agg_20-10-10 -o ZZ/j0126_eval -j 0,8
 
-
-
 # 3) Reduce all tile LUT outputs into seg_lut_all.h5
 python scripts/j0126_workflow.py reduce-lut -o ZZ/j0126_eval
 
