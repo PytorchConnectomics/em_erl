@@ -3,7 +3,10 @@ Evaluation script for expected run length (ERL)
 
 
 - Installation
+  - Python `>=3.10` is required.
 ```
+conda create -n erl-eval python=3.10 -y
+conda activate erl-eval
 pip install --editable .
 ```
 

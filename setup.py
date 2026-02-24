@@ -1,4 +1,3 @@
-import os, sys
 from setuptools import setup, find_packages
 
 
@@ -12,7 +11,7 @@ def setup_package():
         url=url,
         license="MIT",
         author="Donglai Wei",
-        python_requires=">=3.7",
+        python_requires=">=3.10",
         install_requires=[
             "numpy",
             "imageio",
