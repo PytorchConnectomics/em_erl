@@ -7,6 +7,10 @@ Evaluation script for expected run length (ERL)
 pip install --editable .
 ```
 
+- Ground-truth graph format
+  - `ERLGraph` is stored as a compressed `.npz` file (current schema uses flat arrays with `edge_ptr`).
+  - Load with `ERLGraph.from_npz(...)`. Legacy `.npz` graphs created by older versions are auto-converted on load.
+
 # Example
 <table>
   <tr align=center>
@@ -33,6 +37,16 @@ pip install --editable .
   - ✅ The falsely split segment is the same as above.
   - The total ERL=1.176&mu;m is reasonable.
 
+- Graph conversion helpers
+  - From segmentation volume to ERL graph: `python scripts/seg_to_graph.py -s tests/data/vol_gt.h5 -r 30,30,30 -o tests/data/gt_graph.npz`
+  - From kimimaro skeleton pickle to ERL graph: `python scripts/skel_to_graph.py -s tests/data/gt_skel_kimimaro.pkl -o tests/data/gt_graph.npz`
+
+- J0126 tiled workflow (large-volume evaluation)
+  - Prepare GT artifacts (export vertices + build `ERLGraph` NPZ): `python scripts/j0126_workflow.py prepare-gt -g <gt_skeleton.h5> -o <eval_dir>`
+  - Map per-tile segment LUT (parallelizable shards): `python scripts/j0126_workflow.py map-lut -s <seg_folder> -o <eval_dir> -j 0,8`
+  - Reduce per-tile LUTs: `python scripts/j0126_workflow.py reduce-lut -o <eval_dir>`
+  - Compute ERL from `gt_graph.npz` and combined LUT: `python scripts/j0126_workflow.py score -o <eval_dir> -mt 50`
+
 
 
 
@@ -41,4 +55,4 @@ pip install --editable .
 ---
 - [Funkelab](https://github.com/funkelab): [Original implementation](https://github.com/funkelab/funlib.evaluate/blob/master/funlib/evaluate/run_length.py) with `networkx`, which requires much memory.
 - [jasonkena](https://jasonkena.github.io/): Designed a `networkx-lite` class that only keeps relevant info, which is still costly to compute.
-- current: Used `matrix` representation for skeleton-node, precompute edge length, and record error information for in-depth analysis.
+- current: Uses flat-array `ERLGraph` storage (node arrays + edge arrays + `edge_ptr`), precomputed edge lengths, and detailed error statistics.

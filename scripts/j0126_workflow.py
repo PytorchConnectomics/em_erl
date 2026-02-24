@@ -1,152 +1,265 @@
-import os, argparse
-import numpy as np
+import argparse
+from pathlib import Path
+from types import SimpleNamespace
+
 import h5py
-from em_erl.io import read_pkl, mkdir, read_vol, write_h5, write_pkl
+import numpy as np
+
+from em_erl.io import mkdir, read_vol, write_h5
 from em_erl.eval import (
-    compute_segment_lut,
+    combine_segment_lut_tile_zyx,
     compute_erl_score,
     compute_segment_lut_tile_zyx,
-    combine_segment_lut_tile_zyx,
 )
 from em_erl.erl import ERLGraph, skel_to_erlgraph
 
 
-def get_file_path(folder, name):
-    if name == 'gt_vertices':
-        return os.path.join(folder, 'gt_vertices.h5')
-    elif name == 'gt_graph':
-        return os.path.join(folder, 'gt_graph.pkl')
-    elif name == 'seg_pred':
-       return os.path.join(folder, "%04d", "%d_%d.h5")
-    elif name == 'seg_lut':
-        return os.path.join(folder, "%04d", "%d_%d.h5")
-    elif name == 'seg_lut_all':
-        return os.path.join(folder, "seg_lut_all.h5")
-    raise ValueError(f"File not found: {name}")
+J0126_Z_RANGE = 128 * np.arange(45)
+J0126_Y_RANGE = np.arange(6)
+J0126_X_RANGE = np.arange(6)
 
-def compute_lut_j0126(output_folder, option, seg_folder="", gt_skeleton="", job=None):
-    if job is None:
-        job = [0, 1]
-    seg_lut_path = get_file_path(output_folder, 'seg_lut')
-    zran = 128 * np.arange(45)
-    yran = np.arange(6)
-    xran = np.arange(6)
-    if option == "map":
-        seg_pred_path = get_file_path(seg_folder, 'seg_pred')
-        mkdir(output_folder)
-        zran = zran[job[0] :: job[1]]
-        pts = read_vol(gt_skeleton)
-        compute_segment_lut_tile_zyx(
-            seg_pred_path, zran, yran, xran, pts, seg_lut_path
+
+class J0126Paths:
+    def __init__(self, folder):
+        self.folder = Path(folder)
+
+    @property
+    def gt_vertices(self):
+        return self.folder / "gt_vertices.h5"
+
+    @property
+    def gt_graph(self):
+        return self.folder / "gt_graph.npz"
+
+    @property
+    def seg_lut_all(self):
+        return self.folder / "seg_lut_all.h5"
+
+    @property
+    def seg_lut_template(self):
+        return str(self.folder / "%04d" / "%d_%d.h5")
+
+    @staticmethod
+    def seg_pred_template(seg_folder):
+        return str(Path(seg_folder) / "%04d" / "%d_%d.h5")
+
+
+def _parse_skeleton_key(key, fallback):
+    try:
+        return int(key)
+    except (TypeError, ValueError):
+        return int(fallback)
+
+
+def _parse_job_spec(job_spec):
+    try:
+        job_id_str, job_num_str = job_spec.split(",", 1)
+        job_id = int(job_id_str)
+        job_num = int(job_num_str)
+    except Exception as exc:
+        raise ValueError(f"Invalid job spec '{job_spec}', expected 'job_id,job_num'") from exc
+    if job_num <= 0:
+        raise ValueError("job_num must be > 0")
+    if job_id < 0 or job_id >= job_num:
+        raise ValueError("job_id must satisfy 0 <= job_id < job_num")
+    return job_id, job_num
+
+
+def _iter_j0126_tile_ranges(job=None):
+    zran = J0126_Z_RANGE
+    if job is not None:
+        job_id, job_num = job
+        zran = zran[job_id::job_num]
+    return zran, J0126_Y_RANGE, J0126_X_RANGE
+
+
+def prepare_gt(gt_skeleton_path, output_folder):
+    paths = J0126Paths(output_folder)
+    mkdir(str(paths.gt_vertices), "parent")
+
+    if paths.gt_vertices.exists() and paths.gt_graph.exists():
+        print(f"Files exist: {paths.gt_vertices}, {paths.gt_graph}")
+        return
+
+    with h5py.File(gt_skeleton_path, "r") as skeletons:
+        keys = sorted(
+            skeletons.keys(),
+            key=lambda k: (_parse_skeleton_key(k, 0), str(k)),
         )
-    elif option == "reduce":
-        seg_lut_all_path = get_file_path(output_folder, 'seg_lut_all')
-        if os.path.exists(seg_lut_all_path):
-            print(f"File exists: {seg_lut_path}")
-        else:
-            # check that all files exist
-            _ = combine_segment_lut_tile_zyx(zran, yran, xran, seg_lut_path, dry_run=True)
-            out = combine_segment_lut_tile_zyx(zran, yran, xran, seg_lut_path)
-            write_h5(seg_lut_all_path, out)
 
-def get_arguments():
-    """
-    The function `get_arguments()` is used to parse command line arguments for the evaluation on AxonEM.
-    :return: The function `get_arguments` returns the parsed command-line arguments.
-    """
+        skel_dict = {}
+        vertices_all = []
+        for i, key in enumerate(keys):
+            group = skeletons[key]
+            vertices = np.asarray(group["vertices"])
+            edges = np.asarray(group["edges"])
+            vertices_all.append(vertices)
+            skel_dict[_parse_skeleton_key(key, i)] = SimpleNamespace(
+                vertices=vertices,
+                edges=edges,
+            )
+
+    if not paths.gt_vertices.exists():
+        write_h5(str(paths.gt_vertices), np.vstack(vertices_all))
+
+    if not paths.gt_graph.exists():
+        graph = skel_to_erlgraph(skel_dict)
+        graph.save_npz(str(paths.gt_graph))
+
+
+def map_lut_tiles(seg_folder, output_folder, job_spec):
+    paths = J0126Paths(output_folder)
+    if not paths.gt_vertices.exists():
+        raise FileNotFoundError(
+            f"Missing {paths.gt_vertices}. Run 'prepare-gt' first."
+        )
+
+    job = _parse_job_spec(job_spec)
+    zran, yran, xran = _iter_j0126_tile_ranges(job)
+    pts = read_vol(str(paths.gt_vertices))
+    mkdir(str(paths.folder))
+    compute_segment_lut_tile_zyx(
+        J0126Paths.seg_pred_template(seg_folder),
+        zran,
+        yran,
+        xran,
+        pts,
+        paths.seg_lut_template,
+    )
+
+
+def reduce_lut_tiles(output_folder):
+    paths = J0126Paths(output_folder)
+    if paths.seg_lut_all.exists():
+        print(f"File exists: {paths.seg_lut_all}")
+        return
+
+    zran, yran, xran = _iter_j0126_tile_ranges()
+    _ = combine_segment_lut_tile_zyx(zran, yran, xran, paths.seg_lut_template, dry_run=True)
+    out = combine_segment_lut_tile_zyx(zran, yran, xran, paths.seg_lut_template)
+    write_h5(str(paths.seg_lut_all), out)
+
+
+def score_erl(output_folder, merge_threshold):
+    paths = J0126Paths(output_folder)
+    if not paths.gt_graph.exists():
+        raise FileNotFoundError(f"Missing {paths.gt_graph}. Run 'prepare-gt' first.")
+    if not paths.seg_lut_all.exists():
+        raise FileNotFoundError(
+            f"Missing {paths.seg_lut_all}. Run 'reduce-lut' first."
+        )
+
+    gt_graph = ERLGraph.from_npz(str(paths.gt_graph))
+    node_segment_lut = read_vol(str(paths.seg_lut_all))
+    score = compute_erl_score(gt_graph, node_segment_lut, None, merge_threshold)
+    score.compute_erl()
+    score.print_erl()
+    return score
+
+
+def build_parser():
     parser = argparse.ArgumentParser(
-        description="ERL evaluation with precomputed gt statistics"
+        description="J0126 ERL workflow with readable subcommands"
     )
-    parser.add_argument(
-        "-t",
-        "--task",
-        type=int,
-        help="0: compute the segment id for each gt skeleton point, 1: compute erl",
-        default=0,
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    p_prepare = subparsers.add_parser(
+        "prepare-gt",
+        help="Export stacked GT vertices and build ERLGraph (.npz) from an HDF5 skeleton file",
     )
-    parser.add_argument(
-        "-s",
-        "--seg-folder",
-        type=str,
-        help="path to FFN segmentation prediction folder",
-        required=True,
-    )
-    parser.add_argument(
+    p_prepare.add_argument(
         "-g",
         "--gt-skeleton",
-        type=str,
-        help="path to ground truth skeleton file",
-        default="",
+        required=True,
+        help="path to ground truth skeleton HDF5 file",
     )
-    parser.add_argument(
+    p_prepare.add_argument(
         "-o",
         "--output-folder",
-        type=str,
-        help="path to output evaluation",
         default="eval",
+        help="output folder for gt_vertices.h5 and gt_graph.npz",
     )
-    parser.add_argument(
+
+    p_map = subparsers.add_parser(
+        "map-lut",
+        help="Map segmentation tile ids onto GT vertices for one parallel job shard",
+    )
+    p_map.add_argument(
+        "-s",
+        "--seg-folder",
+        required=True,
+        help="path to FFN segmentation prediction folder",
+    )
+    p_map.add_argument(
+        "-o",
+        "--output-folder",
+        default="eval",
+        help="evaluation output folder (must already contain gt_vertices.h5)",
+    )
+    p_map.add_argument(
         "-j",
         "--job",
-        type=str,
-        help="job_id,job_num: compute task=0 in parallel",
         default="0,1",
+        help="job_id,job_num shard spec (e.g. 0,8)",
     )
-    parser.add_argument(
+
+    p_reduce = subparsers.add_parser(
+        "reduce-lut",
+        help="Combine all per-tile LUT outputs into seg_lut_all.h5",
+    )
+    p_reduce.add_argument(
+        "-o",
+        "--output-folder",
+        default="eval",
+        help="evaluation output folder containing per-tile LUT files",
+    )
+
+    p_score = subparsers.add_parser(
+        "score",
+        help="Compute ERL from gt_graph.npz and seg_lut_all.h5",
+    )
+    p_score.add_argument(
+        "-o",
+        "--output-folder",
+        default="eval",
+        help="evaluation output folder",
+    )
+    p_score.add_argument(
         "-mt",
         "--merge-threshold",
         type=int,
-        help="threshold number of voxels to be a false merge",
         default=50,
+        help="threshold number of voxels to be a false merge",
     )
 
-    args = parser.parse_args()
+    return parser
 
-    args.job = [int(x) for x in args.job.split(",")]
-    return args
 
-def compute_skeleton_j0126(gt_skeleton, output_folder):
-    skeletons = h5py.File(gt_skeleton, 'r')
-    vertices_path = get_file_path(output_folder, 'gt_vertices')
-    graph_path = get_file_path(output_folder, 'gt_graph')
+def main():
+    args = build_parser().parse_args()
 
-    if not (os.path.exists(vertices_path) and os.path.exists(graph_path)):
-        vertices = [None] * len(skeletons)
-        for i, k in enumerate(skeletons):
-            vertices[i] = np.array(skeletons[k]['vertices']).astype(np.uint16)
-        if not os.path.exists(vertices_path):
-            write_h5(vertices_path, np.vstack(vertices))
-        if not os.path.exists(graph_path):
-            edges = [None] * len(skeletons)
-            for i, k in enumerate(skeletons):
-                edges[i] = np.array(skeletons[k]['edges']).astype(np.uint16)
-            # TODO: rewrite to use skel_to_erlgraph once input format is clarified
-            # Previously used node_edge_to_networkx + convert_networkx_to_lite
-            # which no longer exist in the current codebase
-            raise NotImplementedError(
-                "compute_skeleton_j0126 task 0 needs to be updated to use "
-                "skel_to_erlgraph instead of the removed networkx conversion functions"
-            )
+    if args.command == "prepare-gt":
+        print("Step: prepare ground truth vertices and ERLGraph")
+        prepare_gt(args.gt_skeleton, args.output_folder)
+        return
+
+    if args.command == "map-lut":
+        print("Step: map segmentation LUT tiles")
+        map_lut_tiles(args.seg_folder, args.output_folder, args.job)
+        return
+
+    if args.command == "reduce-lut":
+        print("Step: reduce LUT tiles")
+        reduce_lut_tiles(args.output_folder)
+        return
+
+    if args.command == "score":
+        print("Step: compute ERL")
+        score_erl(args.output_folder, args.merge_threshold)
+        return
+
+    raise ValueError(f"Unknown command: {args.command}")
 
 
 if __name__ == "__main__":
-    args = get_arguments()
-
-    if args.task == 0:
-        print("Step 0: process the gt skeleton pts")
-        compute_skeleton_j0126(args.gt_skeleton, args.output_folder)
-    elif args.task == 1:
-        print("Step 1: compute segment id for each seg tile")
-        compute_lut_j0126(
-            args.output_folder, "map", args.seg_folder, get_file_path(args.output_folder, 'gt_vertices'), args.job
-        )
-    elif args.task == 2:
-        print("Step 2: combine segment id results for all seg tiles")
-        compute_lut_j0126(args.output_folder, "reduce")
-    elif args.task == 3:
-        print("Step 3: compute erl")
-        gt_graph = read_pkl(get_file_path(args.output_folder, 'gt_graph'))
-        node_segment_lut = read_vol(get_file_path(args.output_folder, 'seg_lut_all'))
-        score = compute_erl_score(gt_graph, node_segment_lut, None, args.merge_threshold)
-        score.compute_erl()
-        score.print_erl()
+    main()
