@@ -13,7 +13,8 @@ Evaluation script for expected run length (ERL)
 ```
 conda create -n erl-eval python=3.10 -y
 conda activate erl-eval
-pip install --editable .
+# if only h5 files
+pip install -e ".[h5]"
 ```
 
 ## Example
