@@ -2,22 +2,16 @@
 
 ## J0126 tiled workflow (`j0126_workflow.py`)
 
-References:
-- [FFN paper](https://www.nature.com/articles/s41592-018-0049-4)
-- [J0126 data README](https://storage.googleapis.com/j0126-nature-methods-data/GgwKmcKgrcoNxJccKuGIzRnQqfit9hnfK1ctZzNbnuU/README.txt)
+References: [FFN paper](https://www.nature.com/articles/s41592-018-0049-4), [J0126 data README](https://storage.googleapis.com/j0126-nature-methods-data/GgwKmcKgrcoNxJccKuGIzRnQqfit9hnfK1ctZzNbnuU/README.txt)
 
 Notes:
 - The workflow builds a ground-truth `ERLGraph` as `gt_graph.npz` (flat-array schema).
 - Large-volume LUT mapping is split into `map-lut` and `reduce-lut` for parallel execution.
 
 ### Data (processed examples)
-- GT skeletons:
-  - [test (50 neurons)](https://huggingface.co/datasets/pytc/zebrafinch-j0126/blob/main/test_50_skeletons.h5)
-  - [validation (12 neurons)](https://huggingface.co/datasets/pytc/zebrafinch-j0126/blob/main/valid_12_skeletons.h5)
-- FFN segmentation:
-  - `seg_folder/%04d/%d_%d.h5` tile layout expected by `j0126_workflow.py`
-- Optional training data:
-  - [33 subvolumes](https://huggingface.co/datasets/pytc/zebrafinch-j0126/blob/main/j0126-train-33vol.zip)
+- GT skeletons: [test (50 neurons)](https://huggingface.co/datasets/pytc/zebrafinch-j0126/blob/main/test_50_skeletons.h5), [validation (12 neurons)](https://huggingface.co/datasets/pytc/zebrafinch-j0126/blob/main/valid_12_skeletons.h5)
+- FFN segmentation (zip files): [part 1](https://huggingface.co/datasets/pytc/zebrafinch-j0126/resolve/main/ffn_agg_20-10-10_part1.zip?download=true), [part 2](https://huggingface.co/datasets/pytc/zebrafinch-j0126/resolve/main/ffn_agg_20-10-10_part2.zip?download=true)
+- Optional training data: [33 subvolumes](https://huggingface.co/datasets/pytc/zebrafinch-j0126/blob/main/j0126-train-33vol.zip)
 
 ### Usage
 ```bash
