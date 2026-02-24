@@ -1,4 +1,4 @@
-Reproducing FFN evaluation result (test_j0126.py)
+Reproducing FFN evaluation result (j0126_workflow.py)
 ----
 [paper](https://www.nature.com/articles/s41592-018-0049-4), [data from the paper](https://storage.googleapis.com/j0126-nature-methods-data/GgwKmcKgrcoNxJccKuGIzRnQqfit9hnfK1ctZzNbnuU/README.txt)
 - Data download (our processed version)
@@ -12,14 +12,14 @@ Reproducing FFN evaluation result (test_j0126.py)
 # unzip FFN segmentation: XX/ffn_agg_20-10-10/
 # gt skeleton file: YY/test_50_skeletons.h5
 # step 0: convert gt skeleton into networkx-lite graph
-python test_j0126.py --seg-folder XX/ffn_agg_20-10-10/ --gt-skeleton YY/test_50_skeletons.h5 --task 0
+python j0126_workflow.py --seg-folder XX/ffn_agg_20-10-10/ --gt-skeleton YY/test_50_skeletons.h5 --task 0
 
 # step 1: compute seg id for each skeleton node for each segment tile (for parallellism, use `--job ${job_id},${job_num}`) 
-python test_j0126.py --seg-folder XX/ffn_agg_20-10-10/ --gt-skeleton YY/test_50_skeletons.h5 --task 1
+python j0126_workflow.py --seg-folder XX/ffn_agg_20-10-10/ --gt-skeleton YY/test_50_skeletons.h5 --task 1
 
 # step 2: combine results from step 1 into one file 
-python test_j0126.py --seg-folder XX/ffn_agg_20-10-10/ --gt-skeleton YY/test_50_skeletons.h5 --task 2
+python j0126_workflow.py --seg-folder XX/ffn_agg_20-10-10/ --gt-skeleton YY/test_50_skeletons.h5 --task 2
 
 # step 3: compute erl
-python test_j0126.py --seg-folder XX/ffn_agg_20-10-10/ --gt-skeleton YY/test_50_skeletons.h5 --task 3
+python j0126_workflow.py --seg-folder XX/ffn_agg_20-10-10/ --gt-skeleton YY/test_50_skeletons.h5 --task 3
 ```
