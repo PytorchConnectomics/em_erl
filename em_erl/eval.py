@@ -328,11 +328,11 @@ def compute_erl_score(
     node_segment_lut = np.asarray(node_segment_lut)
     erl_score = ERLScore(erl_graph.skeleton_id, erl_graph.skeleton_len, verbose)
     num_skeleton = len(erl_graph.skeleton_id)
-    erl_score.skeleton_erl = -np.ones(num_skeleton, dtype=np.float64)
+    erl_score.skeleton_erl = np.zeros(num_skeleton, dtype=np.float64)
     if verbose:
         erl_score.skeleton_score = [SkeletonScore() for _ in range(num_skeleton)]
 
-    # 1. find false merges among gt skeletons (vectorized pair counting)
+    # 1. find merging segments among gt skeletons (vectorized pair counting)
     pair_skel, pair_seg, pair_count = _unique_pair_counts(
         erl_graph.node_skeleton_index,
         node_segment_lut,
@@ -346,51 +346,68 @@ def compute_erl_score(
     merged_segments = seg_big[seg_big_counts > 1]
     merged_skeletons = np.unique(pair_skel[np.isin(pair_seg, merged_segments)]).astype(int)
 
-    erl_score.skeleton_erl[merged_skeletons] = 0
+    # Build lookup sets for merged skeletons/segments
+    merged_segments_set = set(merged_segments.tolist()) if merged_segments.size > 0 else set()
+    is_merged_skeleton = np.zeros(num_skeleton, dtype=bool)
+    if merged_skeletons.size > 0:
+        is_merged_skeleton[merged_skeletons] = True
 
     # 2. find false merges with mask
     merged_mask = None
     merged_mask_skeletons = np.zeros(0, dtype=int)
+    merged_mask_set = set()
     if mask_segment_id is not None:
         mask_segment_id = np.asarray(mask_segment_id)
         mask_id, mask_count = np.unique(mask_segment_id, return_counts=True)
         merged_mask = mask_id[mask_count > merge_threshold]
+        merged_mask_set = set(merged_mask.tolist()) if merged_mask.size > 0 else set()
         if merged_mask.size > 0 and big_pair_seg.size > 0:
             merged_mask_skeletons = np.unique(
                 big_pair_skel[np.isin(big_pair_seg, merged_mask)]
             ).astype(int)
-            erl_score.skeleton_erl[merged_mask_skeletons] = 0
+            if merged_mask_skeletons.size > 0:
+                is_merged_skeleton[merged_mask_skeletons] = True
 
-    # 3. compute ERL for skeletons without merge errors (vectorized edge grouping)
-    active_skeleton_mask = erl_score.skeleton_erl < 0
-    erl_score.skeleton_erl[active_skeleton_mask] = 0
+    # Combine all merging segment IDs (skeleton-skeleton merges + mask merges)
+    all_merging_segments_set = merged_segments_set | merged_mask_set
 
+    # 3. compute ERL for all edges
     edge_skel = erl_graph.edge_skeleton_index().astype(np.int64, copy=False)
-    active_edge_mask = (
-        np.zeros(0, dtype=bool)
-        if edge_skel.size == 0
-        else active_skeleton_mask[edge_skel]
-    )
 
-    edge_skel_active = edge_skel[active_edge_mask]
-    edge_u_active = erl_graph.edge_u[active_edge_mask].astype(np.int64, copy=False)
-    edge_v_active = erl_graph.edge_v[active_edge_mask].astype(np.int64, copy=False)
-    edge_len_active = erl_graph.edge_len[active_edge_mask].astype(np.float64, copy=False)
+    if edge_skel.size > 0:
+        edge_u_idx = erl_graph.edge_u.astype(np.int64, copy=False)
+        edge_v_idx = erl_graph.edge_v.astype(np.int64, copy=False)
+        edge_len_all = erl_graph.edge_len.astype(np.float64, copy=False)
 
-    if edge_u_active.size > 0:
-        seg_u_active = node_segment_lut[edge_u_active]
-        seg_v_active = node_segment_lut[edge_v_active]
-        correct_edge_mask = seg_u_active == seg_v_active
+        seg_u = node_segment_lut[edge_u_idx]
+        seg_v = node_segment_lut[edge_v_idx]
+
+        # An edge is correct when:
+        # - both endpoints map to the same non-zero segment
+        # - the edge is NOT on a merging segment for a merged skeleton
+        same_nonzero = (seg_u == seg_v) & (seg_u != 0)
+
+        # Exclude edges on merging segments for merged skeletons
+        if all_merging_segments_set and np.any(is_merged_skeleton):
+            edge_is_merged_skel = is_merged_skeleton[edge_skel]
+            edge_is_merging_seg = np.isin(seg_u, np.array(list(all_merging_segments_set)))
+            exclude_mask = edge_is_merged_skel & edge_is_merging_seg
+            correct_edge_mask = same_nonzero & ~exclude_mask
+        else:
+            correct_edge_mask = same_nonzero
     else:
-        seg_u_active = np.zeros(0, dtype=node_segment_lut.dtype)
-        seg_v_active = np.zeros(0, dtype=node_segment_lut.dtype)
+        edge_u_idx = np.zeros(0, dtype=np.int64)
+        edge_v_idx = np.zeros(0, dtype=np.int64)
+        edge_len_all = np.zeros(0, dtype=np.float64)
+        seg_u = np.zeros(0, dtype=node_segment_lut.dtype)
+        seg_v = np.zeros(0, dtype=node_segment_lut.dtype)
         correct_edge_mask = np.zeros(0, dtype=bool)
 
     if np.any(correct_edge_mask):
         correct_pair_skel, correct_pair_seg, correct_pair_len = _sum_weights_by_pair(
-            edge_skel_active[correct_edge_mask],
-            seg_u_active[correct_edge_mask],
-            edge_len_active[correct_edge_mask],
+            edge_skel[correct_edge_mask],
+            seg_u[correct_edge_mask],
+            edge_len_all[correct_edge_mask],
         )
         erl_terms = (
             correct_pair_len * correct_pair_len / erl_graph.skeleton_len[correct_pair_skel]
@@ -431,16 +448,20 @@ def compute_erl_score(
                 erl_score.skeleton_score[skel].merged_mask = segs[keep]
                 erl_score.skeleton_score[skel].merged_mask_num = counts[keep].astype(int).tolist()
 
-        active_idx = np.where(active_skeleton_mask)[0]
-        if edge_skel_active.size > 0:
+        if edge_skel.size > 0:
+            # Omitted: either endpoint is segment 0
+            is_omitted = (seg_u == 0) | (seg_v == 0)
+            # Split: endpoints differ AND neither is 0 (omitted takes priority)
+            is_split = (seg_u != seg_v) & ~is_omitted
+
             omitted_edge = np.bincount(
-                edge_skel_active,
-                weights=((seg_u_active == 0) | (seg_v_active == 0)).astype(np.int64),
+                edge_skel,
+                weights=is_omitted.astype(np.int64),
                 minlength=num_skeleton,
             ).astype(int, copy=False)
             split_edge = np.bincount(
-                edge_skel_active,
-                weights=(seg_u_active != seg_v_active).astype(np.int64),
+                edge_skel,
+                weights=is_split.astype(np.int64),
                 minlength=num_skeleton,
             ).astype(int, copy=False)
         else:
@@ -448,7 +469,7 @@ def compute_erl_score(
             split_edge = np.zeros(num_skeleton, dtype=int)
 
         correct_ptr = _group_ptr_from_sorted_left(correct_pair_skel, num_skeleton)
-        for skel in active_idx:
+        for skel in range(num_skeleton):
             score = erl_score.skeleton_score[skel]
             score.omitted = int(omitted_edge[skel])
             score.split = int(split_edge[skel])
