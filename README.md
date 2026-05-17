@@ -46,6 +46,12 @@ pip install -e ".[h5]"
   - `python scripts/volume_eval.py -p <pred.h5> -g <gt_graph.npz> -r 30,30,30 -m <no_merge_mask.h5> -t 30`
   - Small accidental merge contacts below the threshold are tolerated, instead of harshly zeroing the skeleton score for tiny false merges.
 
+## Parallel evaluation
+For large HDF5/Zarr volumes, run segmentation sampling with multiple worker processes:
+```
+python scripts/volume_eval.py -p pred.h5 -g gt_graph.npz -r 30,30,30 \
+  -m mask.h5 --num-workers 4
+```
 
 
 # Change Log

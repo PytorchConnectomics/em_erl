@@ -200,6 +200,8 @@ def compute_segment_lut(
     data_type=np.uint32,
     segment_dataset=None,
     mask_dataset=None,
+    num_workers: int = 1,
+    mask_zrange: tuple[int, int] | None = None,
 ):
     """
     The function `compute_segment_lut` is a low memory version of a lookup table
@@ -216,6 +218,8 @@ def compute_segment_lut(
     :param data_type: The parameter `data_type` is the data type of the array used to store the node segment
     lookup table. In this case, it is set to `np.uint32`, which means the array will store unsigned
     32-bit integers
+    :param num_workers: Number of worker processes for path-backed HDF5/Zarr inputs. Defaults to 1.
+    :param mask_zrange: Optional half-open z range restricting mask voxels in segmentation coordinates.
     :return: a list of numpy arrays, where each array represents the node segment lookup table for a
     specific segment.
     """
@@ -227,6 +231,8 @@ def compute_segment_lut(
         data_type=data_type,
         segment_dataset=segment_dataset,
         mask_dataset=mask_dataset,
+        num_workers=num_workers,
+        mask_zrange=mask_zrange,
     )
 
 

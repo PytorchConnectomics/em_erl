@@ -12,6 +12,8 @@ from em_erl.eval import (
     combine_segment_lut_tile_zyx,
 )
 from em_erl.io import read_h5, write_h5, read_pkl, write_pkl
+import em_erl.sampling as sampling_module
+from em_erl.sampling import sample_segment_lut
 from em_erl.skel import cable_length
 
 
@@ -169,6 +171,257 @@ class TestComputeSegmentLut:
 
         np.testing.assert_array_equal(lut_arr, lut_h5)
         np.testing.assert_array_equal(np.sort(mask_ids_arr), np.sort(mask_ids_h5))
+
+
+class TestSampleSegmentLutMultiprocess:
+    @staticmethod
+    def _fixture():
+        seg = np.arange(6 * 4 * 5, dtype=np.uint32).reshape(6, 4, 5) + 1
+        mask = np.zeros_like(seg, dtype=np.uint8)
+        mask[0, 0, 0] = 1
+        mask[3, 1, 2] = 1
+        mask[5, 3, 4] = 1
+        pts = np.array(
+            [
+                [5, 3, 4],
+                [0, 0, 0],
+                [2, 2, 2],
+                [3, 1, 2],
+            ],
+            dtype=int,
+        )
+        return seg, mask, pts
+
+    def test_parity_path_input_no_mask(self, tmp_path):
+        seg, _, pts = self._fixture()
+        seg_path = str(tmp_path / "seg.h5")
+        write_h5(seg_path, seg)
+
+        serial_lut, serial_mask = sample_segment_lut(seg_path, pts, chunk_num=3)
+        parallel_lut, parallel_mask = sample_segment_lut(
+            seg_path,
+            pts,
+            chunk_num=3,
+            num_workers=2,
+        )
+
+        np.testing.assert_array_equal(serial_lut, parallel_lut)
+        assert serial_mask is None
+        assert parallel_mask is None
+
+    def test_parity_path_input_with_mask(self, tmp_path):
+        seg, mask, pts = self._fixture()
+        seg_path = str(tmp_path / "seg.h5")
+        mask_path = str(tmp_path / "mask.h5")
+        write_h5(seg_path, seg)
+        write_h5(mask_path, mask)
+
+        serial_lut, serial_mask = sample_segment_lut(
+            seg_path,
+            pts,
+            mask=mask_path,
+            chunk_num=4,
+        )
+        parallel_lut, parallel_mask = sample_segment_lut(
+            seg_path,
+            pts,
+            mask=mask_path,
+            chunk_num=4,
+            num_workers=2,
+        )
+
+        np.testing.assert_array_equal(serial_lut, parallel_lut)
+        np.testing.assert_array_equal(np.sort(serial_mask), np.sort(parallel_mask))
+
+    def test_ndarray_falls_back_with_warning(self):
+        seg, _, pts = self._fixture()
+
+        with pytest.warns(RuntimeWarning, match="falls back to serial"):
+            parallel_lut, parallel_mask = sample_segment_lut(
+                seg,
+                pts,
+                chunk_num=3,
+                num_workers=2,
+            )
+        serial_lut, serial_mask = sample_segment_lut(seg, pts, chunk_num=3)
+
+        np.testing.assert_array_equal(serial_lut, parallel_lut)
+        assert serial_mask is None
+        assert parallel_mask is None
+
+    def test_chunk_num_auto_bumps(self, tmp_path, monkeypatch):
+        seg, _, pts = self._fixture()
+        seg_path = str(tmp_path / "seg.h5")
+        write_h5(seg_path, seg)
+        seen_chunk_nums = []
+        original_iter_z_chunks = sampling_module.iter_z_chunks
+
+        def capture_iter_z_chunks(total_z, chunk_num):
+            seen_chunk_nums.append(chunk_num)
+            yield from original_iter_z_chunks(total_z, chunk_num)
+
+        monkeypatch.setattr(sampling_module, "iter_z_chunks", capture_iter_z_chunks)
+
+        sample_segment_lut(seg_path, pts, chunk_num=1, num_workers=2)
+
+        assert seen_chunk_nums == [2]
+
+    def test_empty_node_position(self, tmp_path):
+        seg, mask, _ = self._fixture()
+        seg_path = str(tmp_path / "seg.h5")
+        mask_path = str(tmp_path / "mask.h5")
+        write_h5(seg_path, seg)
+        write_h5(mask_path, mask)
+
+        lut, mask_ids = sample_segment_lut(
+            seg_path,
+            np.zeros((0, 3), dtype=int),
+            mask=mask_path,
+            num_workers=2,
+        )
+
+        assert lut.shape == (0,)
+        assert lut.dtype == np.dtype(np.uint32)
+        assert mask_ids.shape == (0,)
+        assert mask_ids.dtype == seg.dtype
+
+
+class TestMaskZrange:
+    def test_serial_mask_zrange_matches_legacy_preslice(self):
+        seg = np.arange(5 * 3 * 3, dtype=np.uint32).reshape(5, 3, 3) + 1
+        mask = np.zeros_like(seg, dtype=np.uint8)
+        mask[1, 0, 0] = 1
+        mask[2, 1, 1] = 1
+        mask[4, 2, 2] = 1
+        z0, z1 = 1, 4
+        pts = np.array([[1, 0, 0], [2, 1, 1], [3, 2, 2]], dtype=int)
+
+        lut, mask_ids = sample_segment_lut(
+            seg,
+            pts,
+            mask=mask,
+            chunk_num=2,
+            mask_zrange=(z0, z1),
+        )
+
+        local_pts = pts.copy()
+        local_pts[:, 0] -= z0
+        legacy_lut, legacy_mask_ids = sample_segment_lut(
+            seg[z0:z1],
+            local_pts,
+            mask=mask[z0:z1],
+            chunk_num=2,
+        )
+
+        np.testing.assert_array_equal(lut, legacy_lut)
+        np.testing.assert_array_equal(np.sort(mask_ids), np.sort(legacy_mask_ids))
+
+    def test_parallel_mask_zrange_matches_serial(self, tmp_path):
+        seg = np.arange(6 * 4 * 5, dtype=np.uint32).reshape(6, 4, 5) + 1
+        mask = np.zeros_like(seg, dtype=np.uint8)
+        mask[0, 0, 0] = 1
+        mask[1, 1, 1] = 1
+        mask[4, 2, 2] = 1
+        mask[5, 3, 4] = 1
+        pts = np.array([[0, 0, 0], [1, 1, 1], [4, 2, 2], [5, 3, 4]], dtype=int)
+        seg_path = str(tmp_path / "seg.h5")
+        mask_path = str(tmp_path / "mask.h5")
+        write_h5(seg_path, seg)
+        write_h5(mask_path, mask)
+
+        serial_lut, serial_mask = compute_segment_lut(
+            seg_path,
+            pts,
+            mask=mask_path,
+            chunk_num=3,
+            mask_zrange=(1, 5),
+        )
+        parallel_lut, parallel_mask = compute_segment_lut(
+            seg_path,
+            pts,
+            mask=mask_path,
+            chunk_num=3,
+            num_workers=2,
+            mask_zrange=(1, 5),
+        )
+
+        np.testing.assert_array_equal(serial_lut, parallel_lut)
+        np.testing.assert_array_equal(np.sort(serial_mask), np.sort(parallel_mask))
+
+    def test_parallel_mask_zrange_segment_inside_and_outside_zrange(self, tmp_path):
+        seg = np.zeros((5, 3, 3), dtype=np.uint32)
+        seg[1, 0, 0] = 7
+        seg[2, 0, 0] = 7
+        seg[1, 1, 1] = 7
+        seg[0, 0, 1] = 7
+        seg[4, 0, 1] = 7
+        mask = np.zeros_like(seg, dtype=np.uint8)
+        mask[1, 1, 1] = 1
+        mask[0, 0, 1] = 1
+        mask[4, 0, 1] = 1
+        pts = np.array([[1, 0, 0], [2, 0, 0]], dtype=int)
+        z0, z1 = 1, 3
+
+        seg_path = str(tmp_path / "seg.h5")
+        mask_path = str(tmp_path / "mask.h5")
+        write_h5(seg_path, seg)
+        write_h5(mask_path, mask)
+
+        parallel_lut, parallel_mask = compute_segment_lut(
+            seg_path,
+            pts,
+            mask=mask_path,
+            chunk_num=4,
+            num_workers=2,
+            mask_zrange=(z0, z1),
+        )
+
+        local_pts = pts.copy()
+        local_pts[:, 0] -= z0
+        baseline_lut, baseline_mask = compute_segment_lut(
+            seg[z0:z1],
+            local_pts,
+            mask=mask[z0:z1],
+        )
+        full_lut, full_mask = compute_segment_lut(seg_path, pts, mask=mask_path, chunk_num=4)
+
+        graph = make_graph(
+            skeleton_id=[0],
+            skeleton_len=[1.0],
+            node_skeleton_index=[0, 0],
+            node_coords_zyx=pts,
+            edge_u=[0],
+            edge_v=[1],
+            edge_len=[1.0],
+            edge_ptr=[0, 1],
+        )
+        parallel_score = compute_erl_score(
+            graph,
+            parallel_lut,
+            parallel_mask,
+            merge_threshold=1,
+            verbose=True,
+        )
+        baseline_score = compute_erl_score(
+            graph,
+            baseline_lut,
+            baseline_mask,
+            merge_threshold=1,
+            verbose=True,
+        )
+        full_score = compute_erl_score(
+            graph,
+            full_lut,
+            full_mask,
+            merge_threshold=1,
+            verbose=True,
+        )
+
+        np.testing.assert_array_equal(parallel_lut, baseline_lut)
+        np.testing.assert_array_equal(np.sort(parallel_mask), np.sort(baseline_mask))
+        np.testing.assert_array_equal(parallel_score.merged_mask, baseline_score.merged_mask)
+        assert 7 not in set(parallel_score.merged_mask.tolist())
+        assert 7 in set(full_score.merged_mask.tolist())
 
 
 class TestComputeSegmentLutTileZyx:

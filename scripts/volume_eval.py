@@ -13,28 +13,39 @@ def run_volume_eval(
     merge_threshold=0,
     erl_intervals=None,
     verbose=False,
+    num_workers=1,
+    chunk_num=1,
 ):
     print("Load data")
-    pred_seg = read_vol(pred_path)
+    if num_workers > 1:
+        pred_seg = pred_path
+        gt_mask = None if gt_mask_path == "" else gt_mask_path
+    else:
+        pred_seg = read_vol(pred_path)
+        gt_mask = None if gt_mask_path == "" else read_vol(gt_mask_path)
 
-    gt_mask = None if gt_mask_path == "" else read_vol(gt_mask_path)
     # erl graph: in physical unit
     gt_graph = ERLGraph.from_npz(gt_path)
 
     print("Compute seg lookup table for gt skeletons")
     # node position: need voxel unit
     node_position = gt_graph.get_nodes_position(gt_resolution)
+    mask_zrange = None
     if gt_zrange != "":
         # need to trim the gt_graph
         z_start, z_end = [int(x) for x in gt_zrange.split(",")]
         ignore_id = (node_position[:, 0] < z_start) | (node_position[:, 0] > z_end)
         node_position[node_position[:, 0] < z_start, 0] = z_start
         node_position[node_position[:, 0] > z_end, 0] = z_end
-        if gt_mask is not None:
-            gt_mask = gt_mask[z_start : z_end + 1]
+        mask_zrange = (z_start, z_end + 1)
 
     node_segment_lut, mask_segment_id = compute_segment_lut(
-        pred_seg, node_position, gt_mask
+        pred_seg,
+        node_position,
+        mask=gt_mask,
+        chunk_num=chunk_num,
+        num_workers=num_workers,
+        mask_zrange=mask_zrange,
     )
     if gt_zrange != "":
         node_segment_lut[ignore_id] = 0
@@ -122,6 +133,20 @@ def parse_args():
         help="output pickle file path. e.g., erl_score.pkl",
         default="",
     )
+    parser.add_argument(
+        "-w",
+        "--num-workers",
+        type=int,
+        help="number of worker processes for HDF5/Zarr segmentation sampling",
+        default=1,
+    )
+    parser.add_argument(
+        "-c",
+        "--chunk-num",
+        type=int,
+        help="number of z chunks used for segmentation sampling",
+        default=1,
+    )
     result = parser.parse_args()
     result.gt_resolution = [float(x) for x in result.gt_resolution.split(",")]
     result.erl_intervals = (
@@ -146,6 +171,8 @@ def main():
         args.merge_threshold,
         args.erl_intervals,
         args.verbose,
+        args.num_workers,
+        args.chunk_num,
     )
     if args.output_path != "":
         write_pkl(args.output_path, erl_score)
