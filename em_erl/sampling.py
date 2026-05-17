@@ -83,7 +83,12 @@ class H5VolumeSource(VolumeSource):
         import h5py
 
         self._h5py = h5py
-        self._fid = h5py.File(path, "r")
+        # locking=False so reads work on network filesystems where POSIX
+        # advisory locking fails with ENOSPC (common on clustered $HOME / $TMPDIR).
+        try:
+            self._fid = h5py.File(path, "r", locking=False)
+        except TypeError:
+            self._fid = h5py.File(path, "r")
         self._dataset_name = _resolve_dataset_name_h5(self._fid, dataset)
         self._ds = self._fid[self._dataset_name]
         if self._ds.ndim != 3:
