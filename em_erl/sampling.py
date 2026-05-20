@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 from concurrent.futures import ProcessPoolExecutor
-from contextlib import nullcontext
-import warnings
+from contextlib import ExitStack, nullcontext
+from multiprocessing import shared_memory
 
 import numpy as np
 
@@ -78,6 +78,57 @@ class ArrayVolumeSource(VolumeSource):
         return self._array[z0:z1]
 
 
+class SharedMemoryVolumeSource(VolumeSource):
+    def __init__(self, name, shape, dtype):
+        self._shm = shared_memory.SharedMemory(name=name)
+        self.shape = tuple(shape)
+        self.dtype = np.dtype(dtype)
+        self._array = np.ndarray(self.shape, dtype=self.dtype, buffer=self._shm.buf)
+
+    def read_slab(self, z0, z1):
+        return self._array[z0:z1]
+
+    def close(self):
+        self._shm.close()
+
+
+class _SharedMemoryVolume:
+    def __init__(self, volume):
+        array = np.ascontiguousarray(volume)
+        if array.ndim != 3:
+            raise ValueError(f"Expected 3D volume, got shape {array.shape}")
+
+        self.shape = array.shape
+        self.dtype = array.dtype
+        self._shm = shared_memory.SharedMemory(create=True, size=array.nbytes)
+        self._closed = False
+        shm_array = np.ndarray(self.shape, dtype=self.dtype, buffer=self._shm.buf)
+        shm_array[...] = array
+
+    @property
+    def spec(self):
+        return {
+            "kind": "shared_memory",
+            "name": self._shm.name,
+            "shape": self.shape,
+            "dtype": self.dtype.str,
+        }
+
+    def close(self):
+        if self._closed:
+            return
+        self._closed = True
+        self._shm.close()
+        self._shm.unlink()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        self.close()
+        return False
+
+
 class H5VolumeSource(VolumeSource):
     def __init__(self, path, dataset=None):
         import h5py
@@ -123,6 +174,12 @@ class ZarrVolumeSource(VolumeSource):
 def open_volume_source(volume, dataset=None) -> VolumeSource:
     if isinstance(volume, VolumeSource):
         return volume
+    if isinstance(volume, dict) and volume.get("kind") == "shared_memory":
+        return SharedMemoryVolumeSource(
+            name=volume["name"],
+            shape=volume["shape"],
+            dtype=np.dtype(volume["dtype"]),
+        )
     if not isinstance(volume, str):
         return ArrayVolumeSource(volume)
 
@@ -138,6 +195,12 @@ def open_volume_source(volume, dataset=None) -> VolumeSource:
 
 def _is_parallel_volume_path(volume) -> bool:
     return isinstance(volume, str) and volume.lower().endswith(_PARALLEL_VOLUME_SUFFIXES)
+
+
+def _parallel_volume_context(volume, dataset=None):
+    if _is_parallel_volume_path(volume):
+        return nullcontext(volume)
+    return _SharedMemoryVolume(read_vol(volume, dataset) if isinstance(volume, str) else volume)
 
 
 def iter_z_chunks(total_z: int, chunk_num: int):
@@ -227,9 +290,9 @@ def sample_segment_lut_from_sources(
 
 
 def _sample_segment_lut_chunk(spec):
-    seg_path = spec["seg_path"]
+    seg_volume = spec["seg_volume"]
     seg_dataset = spec.get("seg_dataset")
-    mask_path = spec.get("mask_path")
+    mask_volume = spec.get("mask_volume")
     mask_dataset = spec.get("mask_dataset")
     z0, z1 = spec["z0"], spec["z1"]
     node_idx = spec["node_idx"]
@@ -238,7 +301,7 @@ def _sample_segment_lut_chunk(spec):
     mz0 = spec.get("mz0")
     mz1 = spec.get("mz1")
 
-    with open_volume_source(seg_path, dataset=seg_dataset) as seg_src:
+    with open_volume_source(seg_volume, dataset=seg_dataset) as seg_src:
         seg_slab = seg_src.read_slab(z0, z1)
         if node_pts.size > 0:
             seg_vals = seg_slab[
@@ -250,8 +313,8 @@ def _sample_segment_lut_chunk(spec):
             seg_vals = np.zeros(0, dtype=data_type)
 
         mask_vals = None
-        if mask_path is not None and mz0 is not None and mz1 is not None and mz1 > mz0:
-            with open_volume_source(mask_path, dataset=mask_dataset) as mask_src:
+        if mask_volume is not None and mz0 is not None and mz1 is not None and mz1 > mz0:
+            with open_volume_source(mask_volume, dataset=mask_dataset) as mask_src:
                 mask_slab = mask_src.read_slab(mz0, mz1)
                 seg_sub = seg_slab[mz0 - z0 : mz1 - z0]
                 if mask_slab.shape != seg_sub.shape:
@@ -312,89 +375,87 @@ def sample_segment_lut(
             mask_zrange=mask_zrange,
         )
 
-    fallback_reason = None
-    if not _is_parallel_volume_path(segment):
-        fallback_reason = "segment must be an HDF5 or Zarr path"
-    elif mask is not None and not _is_parallel_volume_path(mask):
-        fallback_reason = "mask must be an HDF5 or Zarr path"
-
-    if fallback_reason is not None:
-        warnings.warn(
-            f"multiprocess sampling falls back to serial: {fallback_reason}",
-            RuntimeWarning,
-            stacklevel=2,
-        )
-        return _sample_segment_lut_serial(
-            segment,
-            node_position_zyx=node_position_zyx,
-            mask=mask,
-            chunk_num=chunk_num,
-            data_type=data_type,
-            segment_dataset=segment_dataset,
-            mask_dataset=mask_dataset,
-            mask_zrange=mask_zrange,
-        )
-
     node_position = np.asarray(node_position_zyx, dtype=np.int64)
     if node_position.ndim != 2 or node_position.shape[1] != 3:
         raise ValueError("node_position must have shape [N, 3]")
 
     data_dtype = np.dtype(data_type)
-    with open_volume_source(segment, dataset=segment_dataset) as seg_source:
-        total_z = int(seg_source.shape[0])
-        segment_dtype = np.dtype(seg_source.dtype)
-
-    if len(node_position) == 0:
-        empty_mask = None if mask is None else np.zeros(0, dtype=segment_dtype)
-        return np.zeros(0, dtype=data_dtype), empty_mask
-
-    effective_chunk_num = num_workers if chunk_num <= 1 else chunk_num
-    node_lut = np.zeros(len(node_position), dtype=data_dtype)
-    order = np.argsort(node_position[:, 0], kind="mergesort")
-    z_sorted = node_position[order, 0]
-    specs = []
-
-    for z0, z1 in iter_z_chunks(total_z, effective_chunk_num):
-        lo = int(np.searchsorted(z_sorted, z0, side="left"))
-        hi = int(np.searchsorted(z_sorted, z1, side="left"))
-        node_idx = order[lo:hi]
-        node_pts = node_position[node_idx]
-
-        mz0 = mz1 = None
+    with ExitStack() as stack:
+        segment_parallel = stack.enter_context(
+            _parallel_volume_context(segment, dataset=segment_dataset)
+        )
+        mask_parallel = None
         if mask is not None:
-            mask_z0, mask_z1 = _mask_z_intersection(z0, z1, mask_zrange)
-            if mask_z1 > mask_z0:
-                mz0, mz1 = mask_z0, mask_z1
+            mask_parallel = stack.enter_context(
+                _parallel_volume_context(mask, dataset=mask_dataset)
+            )
 
-        specs.append(
-            {
-                "seg_path": segment,
-                "seg_dataset": segment_dataset,
-                "mask_path": mask,
-                "mask_dataset": mask_dataset,
-                "z0": z0,
-                "z1": z1,
-                "node_idx": node_idx,
-                "node_pts": node_pts,
-                "data_type": data_dtype,
-                "mz0": mz0,
-                "mz1": mz1,
-            }
+        segment_spec = (
+            segment_parallel.spec
+            if isinstance(segment_parallel, _SharedMemoryVolume)
+            else segment_parallel
+        )
+        mask_spec = (
+            mask_parallel.spec
+            if isinstance(mask_parallel, _SharedMemoryVolume)
+            else mask_parallel
         )
 
-    mask_segment_chunks = [] if mask is not None else None
-    with ProcessPoolExecutor(max_workers=num_workers) as executor:
-        for node_idx, seg_vals, mask_vals in executor.map(_sample_segment_lut_chunk, specs):
-            if len(node_idx) > 0:
-                node_lut[node_idx] = seg_vals
-            if mask_segment_chunks is not None and mask_vals is not None:
-                mask_segment_chunks.append(mask_vals)
+        with open_volume_source(segment_spec, dataset=segment_dataset) as seg_source:
+            total_z = int(seg_source.shape[0])
+            segment_dtype = np.dtype(seg_source.dtype)
 
-    if mask is None:
-        return node_lut, None
+        if len(node_position) == 0:
+            empty_mask = None if mask is None else np.zeros(0, dtype=segment_dtype)
+            return np.zeros(0, dtype=data_dtype), empty_mask
 
-    return node_lut, _filter_mask_segment_ids(
-        mask_segment_chunks,
-        node_lut,
-        dtype=segment_dtype,
-    )
+        effective_chunk_num = num_workers if chunk_num <= 1 else chunk_num
+        node_lut = np.zeros(len(node_position), dtype=data_dtype)
+        order = np.argsort(node_position[:, 0], kind="mergesort")
+        z_sorted = node_position[order, 0]
+        specs = []
+
+        for z0, z1 in iter_z_chunks(total_z, effective_chunk_num):
+            lo = int(np.searchsorted(z_sorted, z0, side="left"))
+            hi = int(np.searchsorted(z_sorted, z1, side="left"))
+            node_idx = order[lo:hi]
+            node_pts = node_position[node_idx]
+
+            mz0 = mz1 = None
+            if mask is not None:
+                mask_z0, mask_z1 = _mask_z_intersection(z0, z1, mask_zrange)
+                if mask_z1 > mask_z0:
+                    mz0, mz1 = mask_z0, mask_z1
+
+            specs.append(
+                {
+                    "seg_volume": segment_spec,
+                    "seg_dataset": segment_dataset,
+                    "mask_volume": mask_spec,
+                    "mask_dataset": mask_dataset,
+                    "z0": z0,
+                    "z1": z1,
+                    "node_idx": node_idx,
+                    "node_pts": node_pts,
+                    "data_type": data_dtype,
+                    "mz0": mz0,
+                    "mz1": mz1,
+                }
+            )
+
+        mask_segment_chunks = [] if mask is not None else None
+        with ProcessPoolExecutor(max_workers=num_workers) as executor:
+            for node_idx, seg_vals, mask_vals in executor.map(_sample_segment_lut_chunk, specs):
+                if len(node_idx) > 0:
+                    node_lut[node_idx] = seg_vals
+                if mask_segment_chunks is not None and mask_vals is not None:
+                    mask_segment_chunks.append(mask_vals)
+
+        if mask is None:
+            return node_lut, None
+
+        return node_lut, _filter_mask_segment_ids(
+            mask_segment_chunks,
+            node_lut,
+            dtype=segment_dtype,
+        )

@@ -242,21 +242,40 @@ class TestSampleSegmentLutMultiprocess:
         np.testing.assert_array_equal(serial_lut, parallel_lut)
         np.testing.assert_array_equal(np.sort(serial_mask), np.sort(parallel_mask))
 
-    def test_ndarray_falls_back_with_warning(self):
+    def test_parity_ndarray_input_no_mask(self):
         seg, _, pts = self._fixture()
 
-        with pytest.warns(RuntimeWarning, match="falls back to serial"):
-            parallel_lut, parallel_mask = sample_segment_lut(
-                seg,
-                pts,
-                chunk_num=3,
-                num_workers=2,
-            )
+        parallel_lut, parallel_mask = sample_segment_lut(
+            seg,
+            pts,
+            chunk_num=3,
+            num_workers=2,
+        )
         serial_lut, serial_mask = sample_segment_lut(seg, pts, chunk_num=3)
 
         np.testing.assert_array_equal(serial_lut, parallel_lut)
         assert serial_mask is None
         assert parallel_mask is None
+
+    def test_parity_ndarray_input_with_mask(self):
+        seg, mask, pts = self._fixture()
+
+        serial_lut, serial_mask = sample_segment_lut(
+            seg,
+            pts,
+            mask=mask,
+            chunk_num=4,
+        )
+        parallel_lut, parallel_mask = sample_segment_lut(
+            seg,
+            pts,
+            mask=mask,
+            chunk_num=4,
+            num_workers=2,
+        )
+
+        np.testing.assert_array_equal(serial_lut, parallel_lut)
+        np.testing.assert_array_equal(np.sort(serial_mask), np.sort(parallel_mask))
 
     def test_chunk_num_auto_bumps(self, tmp_path, monkeypatch):
         seg, _, pts = self._fixture()
