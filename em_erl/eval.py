@@ -236,6 +236,19 @@ def compute_segment_lut(
     )
 
 
+def skeleton_assignment_zero_stats(node_segment_lut):
+    node_segment_lut = np.asarray(node_segment_lut)
+    total = int(node_segment_lut.size)
+    assignment_zero = int(np.count_nonzero(node_segment_lut == 0))
+    ratio = 0.0 if total == 0 else assignment_zero / total
+    return assignment_zero, total, ratio
+
+
+def print_skeleton_assignment_zero_stats(node_segment_lut):
+    assignment_zero, total, ratio = skeleton_assignment_zero_stats(node_segment_lut)
+    print(f"Skeleton points with assignment 0: {assignment_zero}/{total} (ratio: {ratio:.6f})")
+
+
 def _try_pack_pair_keys(left, right):
     left_i = np.asarray(left, dtype=np.int64)
     right_i = np.asarray(right, dtype=np.int64)

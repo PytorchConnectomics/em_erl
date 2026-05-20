@@ -10,6 +10,7 @@ from em_erl.eval import (
     compute_segment_lut_tile,
     compute_segment_lut_tile_zyx,
     combine_segment_lut_tile_zyx,
+    skeleton_assignment_zero_stats,
 )
 from em_erl.io import read_h5, write_h5, read_pkl, write_pkl
 import em_erl.sampling as sampling_module
@@ -144,6 +145,14 @@ class TestComputeSegmentLutTile:
 
 
 class TestComputeSegmentLut:
+    def test_skeleton_assignment_zero_stats(self):
+        assignment_zero, total, ratio = skeleton_assignment_zero_stats(
+            np.array([0, 4, 0, 8], dtype=np.uint32)
+        )
+        assert assignment_zero == 2
+        assert total == 4
+        assert ratio == pytest.approx(0.5)
+
     def test_chunked_h5_matches_array(self, tmp_path):
         seg = np.arange(4 * 5 * 6, dtype=np.uint32).reshape(4, 5, 6)
         mask = np.zeros_like(seg, dtype=np.uint8)

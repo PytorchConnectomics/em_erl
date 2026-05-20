@@ -1,6 +1,10 @@
 import argparse
 from em_erl.io import read_vol, write_pkl
-from em_erl.eval import compute_segment_lut, compute_erl_score
+from em_erl.eval import (
+    compute_segment_lut,
+    compute_erl_score,
+    print_skeleton_assignment_zero_stats,
+)
 from em_erl.erl import ERLGraph
 
 
@@ -49,6 +53,8 @@ def run_volume_eval(
     )
     if gt_zrange != "":
         node_segment_lut[ignore_id] = 0
+
+    print_skeleton_assignment_zero_stats(node_segment_lut)
 
     print("Compute erl")
     score = compute_erl_score(

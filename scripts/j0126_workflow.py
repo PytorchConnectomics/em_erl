@@ -10,6 +10,7 @@ from em_erl.eval import (
     combine_segment_lut_tile_zyx,
     compute_erl_score,
     compute_segment_lut_tile_zyx,
+    print_skeleton_assignment_zero_stats,
 )
 from em_erl.erl import ERLGraph, skel_to_erlgraph
 
@@ -151,6 +152,7 @@ def score_erl(output_folder, merge_threshold):
 
     gt_graph = ERLGraph.from_npz(str(paths.gt_graph))
     node_segment_lut = read_vol(str(paths.seg_lut_all))
+    print_skeleton_assignment_zero_stats(node_segment_lut)
     score = compute_erl_score(gt_graph, node_segment_lut, None, merge_threshold)
     score.compute_erl()
     score.print_erl()
