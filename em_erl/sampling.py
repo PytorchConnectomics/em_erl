@@ -159,9 +159,15 @@ class ZarrVolumeSource(VolumeSource):
     def __init__(self, path, dataset=None):
         import zarr
 
-        self._group = zarr.open_group(path)
-        self._dataset_name = _resolve_dataset_name_zarr(self._group, dataset)
-        self._ds = self._group[self._dataset_name]
+        node = zarr.open(path, mode="r")
+        if isinstance(node, zarr.hierarchy.Group):
+            self._group = node
+            self._dataset_name = _resolve_dataset_name_zarr(node, dataset)
+            self._ds = node[self._dataset_name]
+        else:
+            self._group = None
+            self._dataset_name = None
+            self._ds = node
         if self._ds.ndim != 3:
             raise ValueError(f"Expected 3D Zarr array, got shape {self._ds.shape}")
         self.shape = tuple(self._ds.shape)
