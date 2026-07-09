@@ -56,10 +56,10 @@ def build_parser():
     )
     parser.add_argument(
         "--lut",
-        default="results/j0126_node_lut.h5",
+        default="results/j0126/node_lut.h5",
         help=(
-            "node-to-segment LUT HDF5 path (under results/ by default); if it "
-            "exists, load it and score without opening CloudVolume, otherwise "
+            "node-to-segment LUT HDF5 path (under results/j0126/ by default); if "
+            "it exists, load it and score without opening CloudVolume, otherwise "
             "sample and save it. Pass '' to disable saving/reuse."
         ),
     )
@@ -87,8 +87,8 @@ def build_parser():
     parser.add_argument(
         "-o",
         "--output-path",
-        default="results/j0126_erl_score.pkl",
-        help="path for pickled ERLScore output (under results/ by default)",
+        default="results/j0126/erl_score.pkl",
+        help="path for pickled ERLScore output (under results/j0126/ by default)",
     )
     return parser
 

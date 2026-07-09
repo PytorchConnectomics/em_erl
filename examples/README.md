@@ -30,18 +30,19 @@ Notes:
 ```bash
 python examples/eval_j0126.py \
     -g /projects/weilab/dataset/zebrafinch/test_50_skeletons.h5 \
-    --lut results/j0126_node_lut.h5 \
+    --lut results/j0126/node_lut.h5 \
     -w 16 \
-    -o results/j0126_erl_score.pkl
+    -o results/j0126/erl_score.pkl
 ```
 
-The LUT and score default to `results/` (git-ignored). On the first run with a
-missing `--lut` path, the script samples the public FFN CloudVolume and saves the
-LUT; later runs reuse it without opening CloudVolume.
+The LUT and score default to `results/j0126/` (git-ignored). On the first run
+with a missing `--lut` path, the script samples the public FFN CloudVolume and
+saves the LUT; later runs reuse it without opening CloudVolume.
 
 For the verified mip0 J0126 test skeletons this is a one-time egress cost of
 about 3.6 GB. The saved LUT is about 4 MB raw, so it is the artifact to share
-with collaborators. Re-running the same command with the LUT present rebuilds
+(e.g. on HuggingFace) so collaborators can score ERL without re-downloading the
+FFN segmentation. Re-running the same command with the LUT present rebuilds
 the ERL graph from `-g`, checks that `len(LUT) == graph.num_nodes`, and computes
 the score without any CloudVolume access.
 
