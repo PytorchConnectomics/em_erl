@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from contextlib import ExitStack, nullcontext
 from multiprocessing import shared_memory
 
@@ -465,3 +465,109 @@ def sample_segment_lut(
             node_lut,
             dtype=segment_dtype,
         )
+
+
+def _xyz_array(value, name):
+    arr = np.asarray(value, dtype=np.int64).reshape(-1)
+    if arr.size != 3:
+        raise ValueError(f"{name} must have exactly 3 xyz entries, got {value}")
+    return arr
+
+
+def _squeeze_cloudvolume_block(block):
+    block = np.asarray(block)
+    if block.ndim == 4:
+        if block.shape[-1] != 1:
+            raise ValueError(
+                f"expected a single-channel CloudVolume block, got shape {block.shape}"
+            )
+        block = block[..., 0]
+    if block.ndim != 3:
+        raise ValueError(f"expected an xyz block, got shape {block.shape}")
+    return block
+
+
+def sample_cloudvolume_lut(cv, node_zyx, num_workers=16):
+    node_zyx = np.asarray(node_zyx)
+    if node_zyx.ndim != 2 or node_zyx.shape[1] != 3:
+        raise ValueError(f"node_zyx must have shape [N, 3], got {node_zyx.shape}")
+
+    lut = np.zeros(len(node_zyx), dtype=np.uint64)
+    if len(node_zyx) == 0:
+        return lut
+
+    volume_size = _xyz_array(cv.volume_size, "volume_size")
+    chunk_size = _xyz_array(cv.chunk_size, "chunk_size")
+    if np.any(volume_size <= 0):
+        raise ValueError(f"volume_size entries must be positive, got {volume_size}")
+    if np.any(chunk_size <= 0):
+        raise ValueError(f"chunk_size entries must be positive, got {chunk_size}")
+
+    xyz = node_zyx[:, ::-1].astype(np.int64, copy=False)
+    in_bounds = np.all((xyz >= 0) & (xyz < volume_size), axis=1)
+    point_indices = np.flatnonzero(in_bounds)
+    out_of_bounds = int(len(node_zyx) - len(point_indices))
+
+    if len(point_indices) == 0:
+        print(
+            "Sampling 0 in-bounds skeleton nodes; "
+            f"{out_of_bounds} out-of-bounds nodes left as segment 0"
+        )
+        return lut
+
+    chunk_ids = xyz[point_indices] // chunk_size
+    unique_chunks, inverse = np.unique(chunk_ids, axis=0, return_inverse=True)
+
+    order = np.argsort(inverse, kind="stable")
+    sorted_inverse = inverse[order]
+    sorted_point_indices = point_indices[order]
+    group_starts = np.r_[0, np.flatnonzero(np.diff(sorted_inverse)) + 1]
+    group_ends = np.r_[group_starts[1:], len(sorted_point_indices)]
+    groups = [
+        sorted_point_indices[start:end] for start, end in zip(group_starts, group_ends)
+    ]
+
+    total_chunks = len(unique_chunks)
+    print(
+        f"Sampling {len(point_indices)}/{len(node_zyx)} in-bounds skeleton nodes "
+        f"from {total_chunks} occupied chunks; "
+        f"{out_of_bounds} out-of-bounds nodes left as segment 0"
+    )
+
+    def fetch_chunk(chunk_index):
+        chunk_xyz = unique_chunks[chunk_index]
+        indices = groups[chunk_index]
+        start_xyz = chunk_xyz * chunk_size
+        end_xyz = np.minimum(start_xyz + chunk_size, volume_size)
+        block = _squeeze_cloudvolume_block(
+            cv[
+                int(start_xyz[0]) : int(end_xyz[0]),
+                int(start_xyz[1]) : int(end_xyz[1]),
+                int(start_xyz[2]) : int(end_xyz[2]),
+            ]
+        )
+        local_xyz = xyz[indices] - start_xyz
+        values = block[
+            local_xyz[:, 0],
+            local_xyz[:, 1],
+            local_xyz[:, 2],
+        ]
+        return indices, np.asarray(values, dtype=np.uint64)
+
+    max_workers = max(1, int(num_workers))
+    progress_every = max(1, min(1000, total_chunks // 10 or 1))
+    completed = 0
+
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = [
+            executor.submit(fetch_chunk, chunk_index)
+            for chunk_index in range(total_chunks)
+        ]
+        for future in as_completed(futures):
+            indices, values = future.result()
+            lut[indices] = values
+            completed += 1
+            if completed == total_chunks or completed % progress_every == 0:
+                print(f"Fetched {completed}/{total_chunks} occupied chunks")
+
+    return lut

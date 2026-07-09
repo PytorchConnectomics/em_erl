@@ -1,20 +1,21 @@
-import importlib.util
 import sys
-from pathlib import Path
 from types import SimpleNamespace
 
+import em_erl
 import h5py
 import numpy as np
 import pytest
-
-
-def _load_j0126_workflow():
-    path = Path(__file__).resolve().parents[1] / "scripts" / "j0126_workflow.py"
-    spec = importlib.util.spec_from_file_location("j0126_workflow", path)
-    module = importlib.util.module_from_spec(spec)
-    assert spec.loader is not None
-    spec.loader.exec_module(module)
-    return module
+from em_erl import (
+    evaluate_skeletons_cloudvolume,
+    load_node_segment_lut,
+    normalize_seg_url,
+    open_seg_cloudvolume,
+    sample_cloudvolume_lut,
+    save_node_segment_lut,
+    score_graph_with_lut,
+    score_skeletons_with_lut,
+    skel_to_erlgraph,
+)
 
 
 class FakeCloudVolume:
@@ -80,7 +81,6 @@ def _fake_data_xyz():
 
 @pytest.mark.parametrize("num_workers", [1, 4])
 def test_sample_cloudvolume_lut_multiple_chunks_and_oob(num_workers):
-    module = _load_j0126_workflow()
     data_xyz = np.arange(8 * 8 * 8, dtype=np.uint64).reshape(8, 8, 8) + 11
     cv = FakeCloudVolume(data_xyz, chunk_size=(3, 4, 2))
     node_zyx = np.array(
@@ -95,7 +95,7 @@ def test_sample_cloudvolume_lut_multiple_chunks_and_oob(num_workers):
         dtype=np.int64,
     )
 
-    lut = module.sample_cloudvolume_lut(cv, node_zyx, num_workers=num_workers)
+    lut = sample_cloudvolume_lut(cv, node_zyx, num_workers=num_workers)
 
     expected = np.array(
         [
@@ -117,36 +117,33 @@ def test_sample_cloudvolume_lut_multiple_chunks_and_oob(num_workers):
 
 
 def test_normalize_seg_url():
-    module = _load_j0126_workflow()
-
-    assert module.normalize_seg_url("gs://bucket/path") == "precomputed://gs://bucket/path"
+    assert normalize_seg_url("gs://bucket/path") == "precomputed://gs://bucket/path"
     assert (
-        module.normalize_seg_url("precomputed://gs://bucket/path")
+        normalize_seg_url("precomputed://gs://bucket/path")
         == "precomputed://gs://bucket/path"
     )
     assert (
-        module.normalize_seg_url("https://example.com/layer")
+        normalize_seg_url("https://example.com/layer")
         == "precomputed://https://example.com/layer"
     )
     with pytest.raises(ValueError, match="segmentation URL"):
-        module.normalize_seg_url("/local/path")
+        normalize_seg_url("/local/path")
 
 
 def test_lut_round_trip_reuse_scores_without_cloudvolume_access(tmp_path, monkeypatch):
-    module = _load_j0126_workflow()
     skel_dict = _tiny_skeletons()
-    graph = module.skel_to_erlgraph(skel_dict)
+    graph = skel_to_erlgraph(skel_dict)
     cv = FakeCloudVolume(_fake_data_xyz(), chunk_size=(2, 2, 2))
 
-    lut = module.sample_cloudvolume_lut(
+    lut = sample_cloudvolume_lut(
         cv,
         graph.get_nodes_position(None),
         num_workers=1,
     )
     lut_path = tmp_path / "node_segment_lut.h5"
-    module.save_node_segment_lut(lut_path, lut)
+    save_node_segment_lut(lut_path, lut)
 
-    direct_score = module.score_skeletons_with_lut(
+    direct_score = score_skeletons_with_lut(
         skel_dict,
         lut,
         merge_threshold=1,
@@ -160,16 +157,17 @@ def test_lut_round_trip_reuse_scores_without_cloudvolume_access(tmp_path, monkey
         opened_cloudvolumes.append((args, kwargs))
         return RaisingCloudVolume()
 
-    monkeypatch.setattr(module, "open_seg_cloudvolume", fake_open_seg_cloudvolume)
-    reuse_score = module.run_j0126_eval(
+    monkeypatch.setattr(em_erl.eval, "open_seg_cloudvolume", fake_open_seg_cloudvolume)
+    reuse_score = evaluate_skeletons_cloudvolume(
         gt_path,
+        seg_url="gs://bucket/path",
         lut_path=lut_path,
         merge_threshold=1,
         num_workers=1,
     )
 
     assert opened_cloudvolumes == []
-    loaded_lut = module.load_node_segment_lut(lut_path)
+    loaded_lut = load_node_segment_lut(lut_path)
     assert loaded_lut.dtype == np.uint64
     np.testing.assert_array_equal(loaded_lut, lut)
     np.testing.assert_allclose(reuse_score.erl, direct_score.erl)
@@ -177,19 +175,19 @@ def test_lut_round_trip_reuse_scores_without_cloudvolume_access(tmp_path, monkey
 
 
 def test_lut_length_mismatch_raises_clear_error():
-    module = _load_j0126_workflow()
-    graph = module.skel_to_erlgraph(_tiny_skeletons())
+    graph = skel_to_erlgraph(_tiny_skeletons())
     bad_lut = np.zeros(graph.num_nodes + 1, dtype=np.uint64)
 
     with pytest.raises(
         RuntimeError,
         match="length does not match ERL graph node count",
     ):
-        module.score_graph_with_lut(graph, bad_lut, lut_source="test LUT")
+        score_graph_with_lut(graph, bad_lut, lut_source="test LUT")
 
 
-def test_run_j0126_eval_passes_mip_to_cloudvolume_opener(tmp_path, monkeypatch):
-    module = _load_j0126_workflow()
+def test_evaluate_skeletons_cloudvolume_passes_mip_to_cloudvolume_opener(
+    tmp_path, monkeypatch
+):
     skel_dict = _tiny_skeletons()
     gt_path = tmp_path / "skeletons.h5"
     _write_skeleton_h5(gt_path, skel_dict)
@@ -201,9 +199,9 @@ def test_run_j0126_eval_passes_mip_to_cloudvolume_opener(tmp_path, monkeypatch):
         captured["cache_dir"] = cache_dir
         return FakeCloudVolume(_fake_data_xyz(), chunk_size=(4, 4, 4))
 
-    monkeypatch.setattr(module, "open_seg_cloudvolume", fake_open_seg_cloudvolume)
+    monkeypatch.setattr(em_erl.eval, "open_seg_cloudvolume", fake_open_seg_cloudvolume)
     cache_dir = str(tmp_path / "cv-cache")
-    module.run_j0126_eval(
+    evaluate_skeletons_cloudvolume(
         gt_path,
         seg_url="gs://bucket/path",
         merge_threshold=1,
@@ -220,7 +218,6 @@ def test_run_j0126_eval_passes_mip_to_cloudvolume_opener(tmp_path, monkeypatch):
 
 
 def test_open_seg_cloudvolume_passes_cache_to_constructor(monkeypatch):
-    module = _load_j0126_workflow()
     captured = []
 
     class FakeCloudVolumeConstructor:
@@ -233,10 +230,10 @@ def test_open_seg_cloudvolume_passes_cache_to_constructor(monkeypatch):
         SimpleNamespace(CloudVolume=FakeCloudVolumeConstructor),
     )
 
-    module.open_seg_cloudvolume("gs://bucket/path", mip=3, cache_dir="/tmp/cv-cache")
+    open_seg_cloudvolume("gs://bucket/path", mip=3, cache_dir="/tmp/cv-cache")
     assert captured[-1][0] == ("precomputed://gs://bucket/path",)
     assert captured[-1][1]["mip"] == 3
     assert captured[-1][1]["cache"] == "/tmp/cv-cache"
 
-    module.open_seg_cloudvolume("https://example.com/layer")
+    open_seg_cloudvolume("https://example.com/layer")
     assert captured[-1][1]["cache"] is False

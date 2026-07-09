@@ -94,6 +94,8 @@ class ERLScore:
                 print(f"gt skel range: {erl_intervals[i-1]} - {erl_intervals[i]}")
             print(f"ERL\t: {erl[i, 0]:.2f}")
             print(f"gt ERL\t: {erl[i, 1]:.2f}")
+            nerl = erl[i, 0] / erl[i, 1] if erl[i, 1] else 0.0
+            print(f"NERL\t: {nerl:.4f}")
             print(f"#skel\t: {int(erl[i, 2]):d}")
             print("-----------------")
 
@@ -268,7 +270,10 @@ class ERLGraph:
         )
 
     def save_npz(self, output_file):
+        from .io import mkdir
+
         self.validate()
+        mkdir(output_file, "parent")
         np.savez_compressed(
             output_file,
             **{
@@ -399,3 +404,26 @@ def skel_to_erlgraph(
         edge_len=edge_len,
         edge_ptr=np.asarray(edge_ptr, dtype=np.uint64),
     )
+
+
+def skel_to_graph(skel_path, length_threshold=0, sample_ratio=1):
+    """Read a kimimaro skeleton file and build an ERLGraph."""
+    from .io import read_vol
+
+    skel = read_vol(skel_path)
+    return skel_to_erlgraph(
+        skel, length_threshold=length_threshold, sample_ratio=sample_ratio
+    )
+
+
+def seg_to_graph(seg_path, seg_resolution, length_threshold=0, num_thread=1):
+    """Read a segmentation volume, skeletonize it, and build an ERLGraph.
+
+    ``seg_resolution`` is the voxel size (zyx); skeleton nodes are in physical units.
+    """
+    from .io import read_vol
+    from .skel import vol_to_skel
+
+    seg = read_vol(seg_path)
+    skel = vol_to_skel(seg, res=seg_resolution, num_thread=num_thread)
+    return skel_to_erlgraph(skel, length_threshold=length_threshold)

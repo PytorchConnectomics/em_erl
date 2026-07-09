@@ -7,3 +7,5 @@ dist/
 *.h5
 *.npz
 *.sw*
+
+results/

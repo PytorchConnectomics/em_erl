@@ -1,4 +1,8 @@
+import sys, pathlib
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
+
 import argparse
+
 from em_erl.io import read_vol, write_pkl
 from em_erl.eval import (
     compute_segment_lut,
@@ -136,8 +140,8 @@ def parse_args():
         "-o",
         "--output-path",
         type=str,
-        help="output pickle file path. e.g., erl_score.pkl",
-        default="",
+        help="output pickle file path (under results/ by default)",
+        default="results/erl_score.pkl",
     )
     parser.add_argument(
         "-w",
@@ -164,9 +168,8 @@ def parse_args():
 
 
 def main():
-    # python scripts/volume_eval.py -p tests/data/vol_pred.h5 -g tests/data/gt_graph.npz -r 30,30,30 -m tests/data/vol_no-mask.h5
-    # python scripts/volume_eval.py -p pni_seg_32nm.h5 -g axon_graph.npz -r 30,32,32 -m axon_no-mask_erode2.h5 -i 5000,20000,50000,200000 -v True -t 30 -o axon_score.pkl
-    # python scripts/volume_eval.py -p pni_seg_32nm.h5 -g axon_graph_r01.npz -r 30,32,32 -m axon_no-mask_erode2.h5 -i 5000,20000,50000,200000 -v True -t 30 -o axon_score.pkl
+    # python examples/eval_volume.py -p tests/data/vol_pred.h5 -g tests/data/gt_graph.npz -r 30,30,30 -m tests/data/vol_no-mask.h5
+    # python examples/eval_volume.py -p pni_seg_32nm.h5 -g axon_graph.npz -r 30,32,32 -m axon_no-mask_erode2.h5 -i 5000,20000,50000,200000 -v True -t 30 -o results/axon_score.pkl
     args = parse_args()
     erl_score = run_volume_eval(
         args.pred_path,

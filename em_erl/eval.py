@@ -1,8 +1,17 @@
 import os
+from pathlib import Path
+
 import numpy as np
-from .io import read_vol, write_h5, mkdir
-from .erl import SkeletonScore, ERLScore
-from .sampling import sample_segment_lut
+from .erl import SkeletonScore, ERLScore, skel_to_erlgraph
+from .io import (
+    load_skeletons,
+    mkdir,
+    open_seg_cloudvolume,
+    read_vol,
+    write_h5,
+    write_pkl,
+)
+from .sampling import sample_cloudvolume_lut, sample_segment_lut
 
 # step 1: compute node_id-segment lookup table from predicted segmemtation and node positions
 # step 2: compute the ERL from the lookup table and the gt graph
@@ -498,3 +507,117 @@ def compute_erl_score(
             score.correct_len = correct_pair_len[start:end]
 
     return erl_score
+
+
+def load_node_segment_lut(lut_path):
+    """Load a saved node-to-segment LUT without importing CloudVolume."""
+    return np.asarray(read_vol(lut_path), dtype=np.uint64)
+
+
+def save_node_segment_lut(lut_path, node_segment_lut):
+    lut = np.asarray(node_segment_lut, dtype=np.uint64)
+    write_h5(lut_path, lut)
+    print(f"Wrote node segment LUT: {lut_path}")
+    return lut
+
+
+def validate_node_segment_lut(node_segment_lut, graph, source="node_segment_lut"):
+    lut = np.asarray(node_segment_lut, dtype=np.uint64)
+    if lut.ndim != 1:
+        raise ValueError(f"{source} must be a 1D array, got shape {lut.shape}")
+    if len(lut) != graph.num_nodes:
+        raise RuntimeError(
+            f"{source} length does not match ERL graph node count: "
+            f"{len(lut)} != {graph.num_nodes}. "
+            "Regenerate the LUT with the same ground-truth skeleton file."
+        )
+    return lut
+
+
+def score_graph_with_lut(
+    graph,
+    node_segment_lut,
+    merge_threshold=50,
+    output_path="",
+    lut_source="node_segment_lut",
+):
+    node_segment_lut = validate_node_segment_lut(
+        node_segment_lut,
+        graph,
+        source=lut_source,
+    )
+
+    print_skeleton_assignment_zero_stats(node_segment_lut)
+    score = compute_erl_score(graph, node_segment_lut, None, merge_threshold)
+    score.compute_erl()
+    score.print_erl()
+
+    if output_path != "":
+        write_pkl(output_path, score)
+        print(f"Wrote ERL score pickle: {output_path}")
+
+    return score
+
+
+def score_skeletons_with_lut(
+    skel_dict,
+    node_segment_lut,
+    merge_threshold=50,
+    output_path="",
+    lut_source="node_segment_lut",
+):
+    print("Building ERL graph in voxel units")
+    graph = skel_to_erlgraph(skel_dict)
+    return score_graph_with_lut(
+        graph,
+        node_segment_lut,
+        merge_threshold=merge_threshold,
+        output_path=output_path,
+        lut_source=lut_source,
+    )
+
+
+def evaluate_skeletons_cloudvolume(
+    gt_skeleton_path,
+    seg_url,
+    merge_threshold=50,
+    num_workers=16,
+    output_path="",
+    lut_path="",
+    mip=0,
+    cache_dir="",
+):
+    print(f"Loading ground-truth skeletons: {gt_skeleton_path}")
+    skel_dict = load_skeletons(gt_skeleton_path)
+    print(f"Loaded {len(skel_dict)} skeletons")
+
+    print("Building ERL graph in voxel units")
+    graph = skel_to_erlgraph(skel_dict)
+
+    lut_source = "sampled node_segment_lut"
+    lut_file = Path(lut_path) if str(lut_path) != "" else None
+    if lut_file is not None and lut_file.exists():
+        print(f"Loading node segment LUT: {lut_file}")
+        node_segment_lut = load_node_segment_lut(lut_file)
+        lut_source = f"loaded LUT {lut_file}"
+    else:
+        node_zyx = graph.get_nodes_position(None)
+        print(f"Sampling segment ids for {graph.num_nodes} graph nodes")
+        cv = open_seg_cloudvolume(seg_url, mip=mip, cache_dir=cache_dir)
+        node_segment_lut = sample_cloudvolume_lut(cv, node_zyx, num_workers)
+        node_segment_lut = validate_node_segment_lut(
+            node_segment_lut,
+            graph,
+            source="sampled node_segment_lut",
+        )
+        if lut_file is not None:
+            node_segment_lut = save_node_segment_lut(lut_file, node_segment_lut)
+            lut_source = f"saved LUT {lut_file}"
+
+    return score_graph_with_lut(
+        graph,
+        node_segment_lut,
+        merge_threshold=merge_threshold,
+        output_path=output_path,
+        lut_source=lut_source,
+    )

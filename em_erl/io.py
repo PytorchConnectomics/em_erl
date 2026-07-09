@@ -1,6 +1,7 @@
 import os
 import pickle
 from pathlib import Path
+from types import SimpleNamespace
 
 import imageio.v2 as imageio
 import numpy as np
@@ -63,6 +64,40 @@ def _read_cloudvolume(filename):
     out = np.squeeze(cloudvolume.CloudVolume(filename, mip=chunk_id, cache=False)[:])
     # CloudVolume returns xyz; convert to zyx.
     return out.transpose(range(out.ndim)[::-1])
+
+
+def normalize_seg_url(seg_url):
+    url = str(seg_url).strip()
+    prefix = "precomputed://"
+    if url.startswith(prefix):
+        url = url[len(prefix) :]
+    if not url.startswith(("gs://", "https://")):
+        raise ValueError(
+            "segmentation URL must start with 'gs://', 'https://', "
+            "or 'precomputed://' followed by one of those schemes"
+        )
+    return prefix + url
+
+
+def open_seg_cloudvolume(seg_url, mip=0, cache_dir=""):
+    try:
+        from cloudvolume import CloudVolume
+    except ImportError as exc:
+        raise ImportError(
+            "cloud-volume is required for J0126 CloudVolume sampling; "
+            'install with: pip install -e ".[cloud,h5]"'
+        ) from exc
+
+    cache = str(cache_dir) if str(cache_dir) != "" else False
+    return CloudVolume(
+        normalize_seg_url(seg_url),
+        mip=mip,
+        cache=cache,
+        use_https=True,
+        fill_missing=True,
+        bounded=False,
+        progress=False,
+    )
 
 
 def rgb_to_seg(image):
@@ -169,6 +204,35 @@ def read_h5(filename, dataset=None):
     return out[0]
 
 
+def _skeleton_sort_key(key):
+    try:
+        return (0, int(key), str(key))
+    except (TypeError, ValueError):
+        return (1, str(key))
+
+
+def _parse_skeleton_id(key, fallback):
+    try:
+        return int(key)
+    except (TypeError, ValueError):
+        return int(fallback)
+
+
+def load_skeletons(gt_skeleton_path):
+    import h5py
+
+    skel_dict = {}
+    with h5py.File(gt_skeleton_path, "r") as skeletons:
+        keys = sorted(skeletons.keys(), key=_skeleton_sort_key)
+        for i, key in enumerate(keys):
+            group = skeletons[key]
+            skel_dict[_parse_skeleton_id(key, i)] = SimpleNamespace(
+                vertices=np.asarray(group["vertices"]),
+                edges=np.asarray(group["edges"]),
+            )
+    return skel_dict
+
+
 def read_pkl(filename):
     """Read one or more python objects from a pickle file."""
     data = []
@@ -183,6 +247,7 @@ def read_pkl(filename):
 
 def write_pkl(filename, content):
     """Write a python object or list of objects to a pickle file."""
+    mkdir(filename, "parent")
     with open(filename, "wb") as f:
         if isinstance(content, list):
             for val in content:
