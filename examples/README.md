@@ -56,6 +56,37 @@ Generation options:
   a generation re-run, and is off by default. A saved LUT is still the preferred
   reusable artifact.
 
+## Chunked volume ERL workflow (`eval_volume_chunk.py`)
+
+`eval_volume_chunk.py` evaluates a segmentation stored as per-chunk HDF5 files:
+map each tile to a partial node-to-segment LUT, reduce the partial LUTs into
+`seg_lut_all.h5`, then score ERL from `gt_graph.npz`.
+
+```bash
+python examples/eval_volume_chunk.py --config examples/eval_volume_chunk.yaml --init-only
+python examples/eval_volume_chunk.py --config examples/eval_volume_chunk.yaml --parallel 8
+python examples/eval_volume_chunk.py --config examples/eval_volume_chunk.yaml --wait
+python examples/eval_volume_chunk.py --config examples/eval_volume_chunk.yaml --reduce --score
+```
+
+Chunk ranges are template keys for `seg_path_format % (z, y, x)`. `factor` is a
+length-3 zyx multiplier from key to voxel start, so each worker samples a tile
+at `voxel_offset = [z, y, x] * factor`. For index-keyed files, use the chunk
+shape as `factor`. For voxel-start-keyed axes, use `1` on that axis; the
+j0126-style YAML uses `factor: [1, 2048, 2048]` because z keys are voxel starts
+and y/x keys are tile indices.
+
+Common modes:
+- `--init-only` builds `gt_graph.npz` and writes shared node positions to
+  `gt_vertices.h5`.
+- `--chunk-index N` or `--chunk-range A-B` maps one or more chunks. A SLURM
+  array task can provide `SLURM_ARRAY_TASK_ID`.
+- `--parallel N` or `--local` maps the full grid with local multiprocessing.
+- `--sbatch` emits and submits a SLURM array script under `slurm_outputs/`;
+  `--wait` polls for all partial LUT files and fails after a stall timeout.
+- `--reduce` combines partial LUTs; `--score` scores the combined LUT. They can
+  be run together.
+
 ## Other examples
 
 - `eval_volume.py` demonstrates `em_erl.compute_segment_lut`,

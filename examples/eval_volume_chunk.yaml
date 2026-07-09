@@ -1,0 +1,21 @@
+eval_volume_chunk:
+  # Ranges are segmentation template keys for seg_path_format % (z, y, x).
+  # factor maps each key to the voxel start: voxel_offset_zyx = [z, y, x] * factor.
+  # Here z keys are already voxel starts, while y/x keys are tile indices.
+  seg_path_format: /projects/weilab/dataset/zebrafinch/ffn_agg_20-10-10/%04d/%d_%d.h5
+  z_range: "0,5760,128"
+  y_range: "0,6,1"
+  x_range: "0,6,1"
+  factor: [1, 2048, 2048]
+
+  gt_skeleton: /projects/weilab/dataset/zebrafinch/test_50_skeletons.h5
+  workflow_root: results/eval_chunk_j0126
+  merge_threshold: 50
+
+  backend: slurm
+  num_workers: 8
+  slurm:
+    partition: general
+    mem: 16G
+    cpus_per_task: 1
+    time: "12:00:00"
