@@ -7,6 +7,69 @@ repository root to `sys.path`. They also work after `pip install -e .`.
 
 References: [FFN paper](https://www.nature.com/articles/s41592-018-0049-4), [J0126 data README](https://storage.googleapis.com/j0126-nature-methods-data/GgwKmcKgrcoNxJccKuGIzRnQqfit9hnfK1ctZzNbnuU/README.txt)
 
+### Reproduced number
+
+Public FFN segmentation vs the 50 test skeletons, `merge_threshold=50`, voxel units:
+
+| | ERL | gt ERL | NERL | #skel |
+|---|---|---|---|---|
+| FFN (`ffn_segmentation`, mip0) | 96337.92 | 179065.85 | **0.5380** | 50 |
+
+Assignment-zero (skeleton points landing on background) is 11948/500845 = 2.39%.
+`gt ERL` depends only on the skeletons, so it is the same 179065.85 for any
+segmentation scored against this GT — a useful check that two runs are comparable.
+
+### Data download
+
+```bash
+# GT skeletons (also on HuggingFace, see "Data (processed examples)" below)
+wget https://huggingface.co/datasets/pytc/zebrafinch-j0126/resolve/main/test_50_skeletons.h5
+```
+
+The FFN segmentation itself does **not** need downloading: the script streams it
+from the public CloudVolume and writes a ~316 KB node LUT. Ship that LUT, not the
+segmentation.
+
+### Script
+
+```bash
+# first run: samples the public FFN CloudVolume (~3.6 GB one-time egress), writes the LUT
+python examples/eval_j0126.py -g test_50_skeletons.h5 --lut results/j0126/node_lut.h5 -w 16
+
+# later runs: score from the LUT, no CloudVolume access, ~0.1 s
+python examples/eval_j0126.py -g test_50_skeletons.h5 --lut results/j0126/node_lut.h5
+```
+
+### Notes on conventions (read before comparing numbers)
+
+Two independent choices change the value; a number is only meaningful with both stated.
+
+1. **Aggregation — match `funlib.evaluate`.** `funlib/evaluate/run_length.py`
+   computes `skeleton_erl = Σ_seg(correct_len² / skel_len)` and
+   `ERL = Σ_skel (skel_len/total_len) · skeleton_erl`, i.e. `Σ(len·erl)/Σ(len)`.
+   A perfect segmentation gives `erl_i = len_i`, so the normaliser is
+   `Σ(len²)/Σ(len)` and
+
+   ```
+   NERL = Σ(len·erl) / Σ(len²)
+   ```
+
+   `em_erl.ERLScore.compute_erl` implements exactly this (`erl_pred = len*erl`,
+   `erl_gt = len*len`, both divided by `total_len`), so `em_erl` is
+   funlib-consistent and this is what the table above reports.
+
+   Do **not** use `skeleton_erl.sum() / skeleton_len.sum()` (`Σerl/Σlen`). It drops
+   the length weighting in the numerator and reads meaningfully higher — on the
+   zebrafinch ABISS segmentation it gives 0.4135 where the funlib-consistent value
+   is 0.3853. Numbers computed that way are not comparable to funlib or to this table.
+
+2. **Units.** The table is in voxel units (`skel_to_erlgraph` with no
+   `skeleton_resolution`), matching the historical J0126 workflow. This sidesteps the
+   fact that the same J0126 data has been published as both `9x9x20 nm` and
+   `10x10x20 nm`; the FFN report uses `10x10x20`. The effect is small but nonzero —
+   on the same LUT, voxel units give 0.4135 and `10x10x20 nm` gives 0.4146
+   (`Σerl/Σlen` form) — so state the units alongside any physical-unit ERL.
+
 Notes:
 - Demonstrates `em_erl.evaluate_skeletons_cloudvolume`,
   `em_erl.sample_cloudvolume_lut`, and the node LUT save/load helpers.
