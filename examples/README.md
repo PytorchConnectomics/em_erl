@@ -13,25 +13,25 @@ The FFN paper ([Januszewski et al., Nature Methods 2018](https://www.nature.com/
 reports a **mean error-free neurite path length of 1.1 mm** on zebra finch, with only
 4 mergers in **97 mm** of test paths.
 
-Scoring the public FFN segmentation against the 50 test skeletons reproduces that
-(ERL/NERL given as `merge_threshold=0` / `merge_threshold=50`):
+Scoring the public FFN segmentation against the 50 test skeletons, with
+`merge_threshold=0` (the paper's convention — every merge counts):
 
-| resolution (x,y,z nm) | GT total path | gt ERL | ERL (mt 0 / 50) | NERL (mt 0 / 50) |
+| resolution (x,y,z nm) | GT total path | gt ERL | ERL | NERL |
 |---|---|---|---|---|
-| `10 x 10 x 20` (paper) | **97.4 mm** | 2.114 mm | **1.105** / 1.132 mm | 0.5228 / 0.5352 |
-| `9 x 9 x 20` | 91.1 mm | 1.978 mm | 1.033 / 1.058 mm | 0.5223 / 0.5347 |
+| `10 x 10 x 20` (paper) | **97.4 mm** | 2.114 mm | **1.105 mm** | 0.5228 |
+| `9 x 9 x 20` | 91.1 mm | 1.978 mm | 1.033 mm | 0.5223 |
 
-**Matching the paper's 1.1 mm requires getting two things right:**
+FFN hits the reported 1.1 mm exactly. Getting there needs two settings right:
 
 - **(a) Resolution — use `10 x 10 x 20`.** The same J0126 data has been published as both
   `9x9x20` and `10x10x20` nm. Two independent checks pick `10x10x20`: the GT total path
   is 97.4 mm vs the paper's 97 mm (at `9x9x20` it is 91.1 mm, which does not match), and
   the ERL lands on 1.105 mm vs the reported 1.1 mm.
 - **(b) Merge threshold — use `merge_threshold=0`.** This counts every merge, however
-  small. The paper's number corresponds to that: 1.105 mm at mt 0 vs 1.132 mm at mt 50.
-  `merge_threshold=50` ignores merges sharing fewer than 50 skeleton nodes (dust merges),
-  so it always reads higher and is *not* the paper's convention. Everything else in this
-  repo defaults to 50, so state the threshold with any ERL you quote.
+  small. A nonzero threshold ignores merges sharing fewer than that many skeleton nodes
+  (dust merges) and so always reads higher — at `merge_threshold=50`, the repo default
+  elsewhere, the same LUT gives 1.132 mm instead of 1.105 mm. State the threshold with
+  any ERL you quote.
 
 Assignment-zero (skeleton points landing on background) is 11948/500845 = 2.39%.
 `gt ERL` depends only on the skeletons and the resolution, so at a fixed resolution it
