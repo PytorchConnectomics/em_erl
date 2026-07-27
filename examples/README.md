@@ -79,6 +79,22 @@ The FFN segmentation itself does **not** need downloading: the script streams it
 from the public CloudVolume and writes a ~316 KB node LUT. Ship that LUT, not the
 segmentation.
 
+Optional — skip the sampling entirely by downloading the precomputed LUT
+([`ffn_node_lut_test_50.h5`](https://huggingface.co/datasets/pytc/zebrafinch-j0126/resolve/main/ffn_node_lut_test_50.h5?download=true),
+316 KB), which is the public FFN segmentation at mip0 sampled at every node of
+`test_50_skeletons.h5`. It reproduces the table above and saves the ~3.6 GB of
+CloudVolume egress:
+
+```bash
+wget https://huggingface.co/datasets/pytc/zebrafinch-j0126/resolve/main/ffn_node_lut_test_50.h5 \
+     -O results/j0126/node_lut.h5
+python examples/eval_j0126.py -g test_50_skeletons.h5 --lut results/j0126/node_lut.h5
+```
+
+The LUT is one segment id per skeleton node in `em_erl.io.load_skeletons` order
+(HDF5 keys sorted **numerically**). Pair it with a graph built from the same loader —
+indexing it with any other node order silently yields a wrong score rather than an error.
+
 ### Script
 
 ```bash
@@ -137,6 +153,7 @@ Notes:
 - GT skeletons: [test (50 neurons)](https://huggingface.co/datasets/pytc/zebrafinch-j0126/blob/main/test_50_skeletons.h5), [validation (12 neurons)](https://huggingface.co/datasets/pytc/zebrafinch-j0126/blob/main/valid_12_skeletons.h5)
 - FFN segmentation (zip files): [part 1](https://huggingface.co/datasets/pytc/zebrafinch-j0126/resolve/main/ffn_agg_20-10-10_part1.zip?download=true), [part 2](https://huggingface.co/datasets/pytc/zebrafinch-j0126/resolve/main/ffn_agg_20-10-10_part2.zip?download=true)
 - Optional training data: [33 subvolumes](https://huggingface.co/datasets/pytc/zebrafinch-j0126/blob/main/j0126-train-33vol.zip)
+- Optional precomputed FFN node LUT (skip CloudVolume sampling): [ffn_node_lut_test_50.h5](https://huggingface.co/datasets/pytc/zebrafinch-j0126/resolve/main/ffn_node_lut_test_50.h5?download=true) (316 KB)
 
 ### Usage
 ```bash
