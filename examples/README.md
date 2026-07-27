@@ -45,12 +45,22 @@ the same LUT; the node order is unchanged, only the edge lengths are scaled:
 ```python
 from em_erl.io import load_skeletons
 from em_erl.erl import skel_to_erlgraph
-from em_erl.eval import compute_erl_score
+from em_erl.eval import load_node_segment_lut, compute_erl_score
 
 skel = load_skeletons("test_50_skeletons.h5")          # numeric key sort == LUT node order
 graph = skel_to_erlgraph(skel, skeleton_resolution=(20, 10, 10))   # nm, ZYX
-score = compute_erl_score(graph, lut, None, merge_threshold=0)   # 0 = paper convention
+lut = load_node_segment_lut("results/j0126/node_lut.h5")
+score = compute_erl_score(graph, lut, None, merge_threshold=0)     # 0 = paper convention
 score.compute_erl()
+score.print_erl()
+```
+
+```
+all skel
+ERL     : 1105478.94
+gt ERL  : 2114415.53
+NERL    : 0.5228
+#skel   : 50
 ```
 
 Load the skeletons with `em_erl.io.load_skeletons` rather than raw HDF5 key iteration:
