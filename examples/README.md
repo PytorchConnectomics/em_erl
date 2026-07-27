@@ -9,15 +9,48 @@ References: [FFN paper](https://www.nature.com/articles/s41592-018-0049-4), [J01
 
 ### Reproduced number
 
-Public FFN segmentation vs the 50 test skeletons, `merge_threshold=50`, voxel units:
+The FFN paper ([Januszewski et al., Nature Methods 2018](https://www.nature.com/articles/s41592-018-0049-4))
+reports a **mean error-free neurite path length of 1.1 mm** on zebra finch, with only
+4 mergers in **97 mm** of test paths.
 
-| | ERL | gt ERL | NERL | #skel |
+Scoring the public FFN segmentation against the 50 test skeletons with
+`merge_threshold=50` reproduces that:
+
+| resolution (x,y,z nm) | ERL | gt ERL | NERL | GT total path |
 |---|---|---|---|---|
-| FFN (`ffn_segmentation`, mip0) | 96337.92 | 179065.85 | **0.5380** | 50 |
+| `10 x 10 x 20` (paper) | **1.132 mm** | 2.114 mm | 0.5352 | **97.4 mm** |
+| `9 x 9 x 20` | 1.058 mm | 1.978 mm | 0.5347 | 91.1 mm |
+| voxel units (default) | 96337.92 | 179065.85 | 0.5380 | — |
+
+**Use `10 x 10 x 20` to compare against the paper.** Two independent checks agree on it:
+ERL 1.132 mm vs the reported 1.1 mm, and GT total path 97.4 mm vs the reported 97 mm.
+At `9 x 9 x 20` the path length (91.1 mm) does not match the paper, so that resolution
+is the wrong one for this comparison even though the same data has been published
+under both labels.
 
 Assignment-zero (skeleton points landing on background) is 11948/500845 = 2.39%.
-`gt ERL` depends only on the skeletons, so it is the same 179065.85 for any
-segmentation scored against this GT — a useful check that two runs are comparable.
+`gt ERL` depends only on the skeletons and the resolution, so at a fixed resolution it
+is invariant across segmentations — a useful check that two runs are comparable.
+
+To reproduce the physical-unit rows, build the graph with the resolution applied
+(`skel_to_erlgraph` takes ZYX order, so `10 x 10 x 20` xyz is `(20, 10, 10)`) and score
+the same LUT; the node order is unchanged, only the edge lengths are scaled:
+
+```python
+from em_erl.io import load_skeletons
+from em_erl.erl import skel_to_erlgraph
+from em_erl.eval import compute_erl_score
+
+skel = load_skeletons("test_50_skeletons.h5")          # numeric key sort == LUT node order
+graph = skel_to_erlgraph(skel, skeleton_resolution=(20, 10, 10))   # nm, ZYX
+score = compute_erl_score(graph, lut, None, merge_threshold=50)
+score.compute_erl()
+```
+
+Load the skeletons with `em_erl.io.load_skeletons` rather than raw HDF5 key iteration:
+`load_skeletons` sorts keys numerically, while iterating the HDF5 file directly gives
+`0, 1, 10, 11, ...`, which silently misaligns the LUT and produces a meaningless score
+(0.053 instead of 0.538).
 
 ### Data download
 
