@@ -13,26 +13,32 @@ The FFN paper ([Januszewski et al., Nature Methods 2018](https://www.nature.com/
 reports a **mean error-free neurite path length of 1.1 mm** on zebra finch, with only
 4 mergers in **97 mm** of test paths.
 
-Scoring the public FFN segmentation against the 50 test skeletons with
-`merge_threshold=50` reproduces that:
+Scoring the public FFN segmentation against the 50 test skeletons reproduces that
+(ERL/NERL given as `merge_threshold=0` / `merge_threshold=50`):
 
-| resolution (x,y,z nm) | ERL | gt ERL | NERL | GT total path |
+| resolution (x,y,z nm) | GT total path | gt ERL | ERL (mt 0 / 50) | NERL (mt 0 / 50) |
 |---|---|---|---|---|
-| `10 x 10 x 20` (paper) | **1.132 mm** | 2.114 mm | 0.5352 | **97.4 mm** |
-| `9 x 9 x 20` | 1.058 mm | 1.978 mm | 0.5347 | 91.1 mm |
-| voxel units (default) | 96337.92 | 179065.85 | 0.5380 | — |
+| `10 x 10 x 20` (paper) | **97.4 mm** | 2.114 mm | **1.105** / 1.132 mm | 0.5228 / 0.5352 |
+| `9 x 9 x 20` | 91.1 mm | 1.978 mm | 1.033 / 1.058 mm | 0.5223 / 0.5347 |
 
-**Use `10 x 10 x 20` to compare against the paper.** Two independent checks agree on it:
-ERL 1.132 mm vs the reported 1.1 mm, and GT total path 97.4 mm vs the reported 97 mm.
-At `9 x 9 x 20` the path length (91.1 mm) does not match the paper, so that resolution
-is the wrong one for this comparison even though the same data has been published
-under both labels.
+**Matching the paper's 1.1 mm requires getting two things right:**
+
+- **(a) Resolution — use `10 x 10 x 20`.** The same J0126 data has been published as both
+  `9x9x20` and `10x10x20` nm. Two independent checks pick `10x10x20`: the GT total path
+  is 97.4 mm vs the paper's 97 mm (at `9x9x20` it is 91.1 mm, which does not match), and
+  the ERL lands on 1.105 mm vs the reported 1.1 mm.
+- **(b) Merge threshold — use `merge_threshold=0`.** This counts every merge, however
+  small. The paper's number corresponds to that: 1.105 mm at mt 0 vs 1.132 mm at mt 50.
+  `merge_threshold=50` ignores merges sharing fewer than 50 skeleton nodes (dust merges),
+  so it always reads higher and is *not* the paper's convention. Everything else in this
+  repo defaults to 50, so state the threshold with any ERL you quote.
 
 Assignment-zero (skeleton points landing on background) is 11948/500845 = 2.39%.
 `gt ERL` depends only on the skeletons and the resolution, so at a fixed resolution it
-is invariant across segmentations — a useful check that two runs are comparable.
+is invariant across segmentations and thresholds — a useful check that two runs are
+comparable.
 
-To reproduce the physical-unit rows, build the graph with the resolution applied
+To reproduce these rows, build the graph with the resolution applied
 (`skel_to_erlgraph` takes ZYX order, so `10 x 10 x 20` xyz is `(20, 10, 10)`) and score
 the same LUT; the node order is unchanged, only the edge lengths are scaled:
 
@@ -43,7 +49,7 @@ from em_erl.eval import compute_erl_score
 
 skel = load_skeletons("test_50_skeletons.h5")          # numeric key sort == LUT node order
 graph = skel_to_erlgraph(skel, skeleton_resolution=(20, 10, 10))   # nm, ZYX
-score = compute_erl_score(graph, lut, None, merge_threshold=50)
+score = compute_erl_score(graph, lut, None, merge_threshold=0)   # 0 = paper convention
 score.compute_erl()
 ```
 
@@ -96,12 +102,12 @@ Two independent choices change the value; a number is only meaningful with both 
    zebrafinch ABISS segmentation it gives 0.4135 where the funlib-consistent value
    is 0.3853. Numbers computed that way are not comparable to funlib or to this table.
 
-2. **Units.** The table is in voxel units (`skel_to_erlgraph` with no
-   `skeleton_resolution`), matching the historical J0126 workflow. This sidesteps the
-   fact that the same J0126 data has been published as both `9x9x20 nm` and
-   `10x10x20 nm`; the FFN report uses `10x10x20`. The effect is small but nonzero —
-   on the same LUT, voxel units give 0.4135 and `10x10x20 nm` gives 0.4146
-   (`Σerl/Σlen` form) — so state the units alongside any physical-unit ERL.
+2. **Units and merge threshold.** `eval_j0126.py` scores in voxel units
+   (`skel_to_erlgraph` with no `skeleton_resolution`) at `merge_threshold=50`, which is
+   the historical J0126 workflow but is *not* the paper's convention. To compare against
+   the paper use `10 x 10 x 20` nm and `merge_threshold=0` — see "Reproduced number"
+   above for both caveats and the measured effect of each. Always state the resolution
+   and the threshold alongside any ERL.
 
 Notes:
 - Demonstrates `em_erl.evaluate_skeletons_cloudvolume`,
