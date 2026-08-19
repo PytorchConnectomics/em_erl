@@ -913,3 +913,216 @@ class TestEndToEnd:
         assert score.erl[0] > 0  # ERL should be positive
         assert score.erl[1] > 0  # gt ERL should be positive
         assert score.erl[2] == 2  # 2 skeletons
+
+
+# ---------------------------------------------------------------------------
+# Regression: large segment ids must not collide.
+#
+# `_try_pack_pair_keys` packs (skeleton, segment) into one int64 with
+# radix = segment_max + 1. For real segmentations whose ids are large (ABISS
+# emits per-chunk offsets around 7.2e16) that product overflows int64, the
+# packer bails, and the fallback used `np.column_stack([int64, uint64])` --
+# which numpy promotes to **float64**. Ids above 2**53 are then no longer
+# exactly representable and distinct segments silently merge into one pair,
+# inflating both the pair counts and the summed weights.
+# ---------------------------------------------------------------------------
+
+# NOTE the skeleton ids must be large too. radix = segment_max + 1, and the packer
+# only bails when left_max > (2**63-1 - segment_max) // radix, which for segment ids
+# around 2**56 means a skeleton id above ~127. With a handful of skeletons the fast
+# path still works and the bug is invisible -- it appears on dense ground truth
+# (the FFN pseudo-GT has 796 skeletons) but not on the 63-skeleton human GT.
+_BIG_BASE = 72057594037927936  # 2**56, the ABISS per-chunk offset scale
+_MANY_SKEL = 796               # matches the FFN pseudo-GT on z2_y5_x5
+
+
+def _big_ids():
+    base = np.uint64(_BIG_BASE)
+    # distinct as integers, indistinguishable once cast to float64
+    return np.array([base, base + np.uint64(1), base + np.uint64(2)], dtype=np.uint64)
+
+
+def _many_skel():
+    return np.array([_MANY_SKEL - 1] * 3, dtype=np.int64)
+
+
+def test_unique_pair_counts_preserves_large_segment_ids():
+    from em_erl.eval import _unique_pair_counts
+
+    seg = _big_ids()
+    skel = _many_skel()
+
+    left, right, counts = _unique_pair_counts(skel, seg)
+
+    assert len(right) == 3, f"expected 3 distinct segments, got {len(right)}: {right}"
+    assert sorted(int(v) for v in right) == sorted(int(v) for v in seg)
+    assert counts.tolist() == [1, 1, 1]
+    assert left.tolist() == [_MANY_SKEL - 1] * 3
+
+
+def test_sum_weights_by_pair_preserves_large_segment_ids():
+    from em_erl.eval import _sum_weights_by_pair
+
+    seg = _big_ids()
+    skel = _many_skel()
+    weights = np.array([10.0, 20.0, 30.0], dtype=np.float64)
+
+    left, right, sums = _sum_weights_by_pair(skel, seg, weights)
+
+    assert len(right) == 3, f"expected 3 distinct segments, got {len(right)}: {right}"
+    order = np.argsort(right)
+    assert [int(v) for v in right[order]] == sorted(int(v) for v in seg)
+    assert sums[order].tolist() == [10.0, 20.0, 30.0]
+
+
+def test_pair_helpers_match_python_reference_on_large_ids():
+    """Cross-check against an exact Python-int grouping on a mixed workload."""
+    from collections import Counter, defaultdict
+    from em_erl.eval import _unique_pair_counts, _sum_weights_by_pair
+
+    rng = np.random.default_rng(0)
+    base = _BIG_BASE
+    seg = (base + rng.integers(0, 5, size=200)).astype(np.uint64)
+    skel = rng.integers(1, _MANY_SKEL, size=200).astype(np.int64)
+    weights = rng.random(200)
+
+    ref_counts = Counter(zip(skel.tolist(), [int(v) for v in seg]))
+    ref_sums = defaultdict(float)
+    for s, g, w in zip(skel.tolist(), [int(v) for v in seg], weights.tolist()):
+        ref_sums[(s, g)] += w
+
+    left, right, counts = _unique_pair_counts(skel, seg)
+    got_counts = {(int(a), int(b)): int(c) for a, b, c in zip(left, right, counts)}
+    assert got_counts == dict(ref_counts)
+
+    left, right, sums = _sum_weights_by_pair(skel, seg, weights)
+    got_sums = {(int(a), int(b)): float(c) for a, b, c in zip(left, right, sums)}
+    assert set(got_sums) == set(ref_sums)
+    for k in got_sums:
+        assert abs(got_sums[k] - ref_sums[k]) < 1e-12
+
+# ---------------------------------------------------------------------------
+# Property: NERL is a function of the PARTITION, so relabelling segments
+# bijectively must not move it.
+#
+# This is not hypothetical bookkeeping. Segment ids here reach 1.22e18 (2**60.1)
+# and only 644 of the 11,388 scored ids on the zebrafinch matchguard LUT are
+# exactly representable in float64; 110 of them fall into 55 shared float64
+# buckets. Any operation that routes ids through float64 therefore conflates
+# distinct segments. `np.column_stack` / `np.concatenate` of int64 with uint64 DO
+# promote to float64 (that is the bug `_pair_keys` above was written to avoid).
+# `np.isin`, which `compute_erl_score` uses to exclude edges on merging segments,
+# does NOT promote on numpy >= 2 -- this test pins that, because the exclusion
+# line reads `np.isin(seg_u_uint64, np.array(list(set_of_python_ints)))` and would
+# silently start conflating ids if that ever changed.
+# ---------------------------------------------------------------------------
+
+
+def _two_skeleton_graph(nodes_per_skeleton=4):
+    n = nodes_per_skeleton
+    node_skeleton_index = np.array([0] * n + [1] * n, dtype=np.int64)
+    coords = np.arange(2 * n, dtype=np.int64)
+    node_coords_zyx = np.stack([coords, np.zeros(2 * n), np.zeros(2 * n)], axis=1).astype(np.int64)
+    eu, ev = [], []
+    for base in (0, n):
+        for i in range(n - 1):
+            eu.append(base + i)
+            ev.append(base + i + 1)
+    edge_u = np.array(eu, dtype=np.int64)
+    edge_v = np.array(ev, dtype=np.int64)
+    edge_len = np.ones(len(edge_u), dtype=np.float64)
+    edge_ptr = np.array([0, n - 1, 2 * (n - 1)], dtype=np.int64)
+    return ERLGraph(
+        skeleton_id=np.array([0, 1], dtype=np.int64),
+        skeleton_len=np.array([float(n - 1), float(n - 1)], dtype=np.float64),
+        node_skeleton_index=node_skeleton_index,
+        node_coords_zyx=node_coords_zyx,
+        edge_u=edge_u,
+        edge_v=edge_v,
+        edge_len=edge_len,
+        edge_ptr=edge_ptr,
+    )
+
+
+def _merge_graph(n_skeletons, nodes_per_skeleton=4):
+    n = nodes_per_skeleton
+    node_skeleton_index = np.repeat(np.arange(n_skeletons, dtype=np.int64), n)
+    total = n_skeletons * n
+    coords = np.arange(total, dtype=np.int64)
+    node_coords_zyx = np.stack([coords, np.zeros(total), np.zeros(total)], axis=1).astype(np.int64)
+    eu, ev = [], []
+    for k in range(n_skeletons):
+        base = k * n
+        for i in range(n - 1):
+            eu.append(base + i)
+            ev.append(base + i + 1)
+    edge_u = np.array(eu, dtype=np.int64)
+    edge_v = np.array(ev, dtype=np.int64)
+    edge_len = np.ones(len(edge_u), dtype=np.float64)
+    edge_ptr = np.arange(n_skeletons + 1, dtype=np.int64) * (n - 1)
+    return ERLGraph(
+        skeleton_id=np.arange(n_skeletons, dtype=np.int64),
+        skeleton_len=np.full(n_skeletons, float(n - 1), dtype=np.float64),
+        node_skeleton_index=node_skeleton_index,
+        node_coords_zyx=node_coords_zyx,
+        edge_u=edge_u,
+        edge_v=edge_v,
+        edge_len=edge_len,
+        edge_ptr=edge_ptr,
+    )
+
+
+def test_erl_is_invariant_to_segment_relabelling_with_huge_ids():
+    # NOTE the merging set must be LARGE. np.isin switches from an elementwise
+    # comparison to a sort-based path at ~10 elements, and only the sort path
+    # concatenates (and therefore promotes uint64 x int64 to float64). With a
+    # handful of merging segments the bug is invisible -- which is exactly why it
+    # showed up at merge_threshold=0 (every multi-skeleton segment merges, so the
+    # set is large) and never at mt=50.
+    n_skel = 24
+    graph = _merge_graph(n_skel, nodes_per_skeleton=4)
+
+    base = np.uint64(1 << 60)   # float64 spacing here is 256
+    lut_big = np.zeros(n_skel * 4, dtype=np.uint64)
+    for k in range(n_skel):
+        o = k * 4
+        # M_k spans skeletons k and k+1 -> every M_k is a merging segment
+        m = base + np.uint64(2 * ((k % n_skel) + 1))
+        c = base + np.uint64(2 * (k + 1) + 1)     # private to skeleton k, adjacent to an M
+        lut_big[o:o + 2] = c
+        lut_big[o + 2:o + 4] = m
+    # give skeleton k's tail segment to skeleton k+1's head so the M's really span two
+    for k in range(n_skel - 1):
+        lut_big[(k + 1) * 4:(k + 1) * 4 + 0] = lut_big[k * 4 + 2]
+
+    uniq = np.unique(lut_big)
+    lut_small = (np.searchsorted(uniq, lut_big) + 1).astype(np.uint64)
+
+    big = compute_erl_score(graph, lut_big, None, merge_threshold=0)
+    big.compute_erl()
+    small = compute_erl_score(graph, lut_small, None, merge_threshold=0)
+    small.compute_erl()
+
+    assert small.erl[0] > 0, "degenerate fixture -- nothing left to lose"
+    assert big.erl[0] == pytest.approx(small.erl[0]), (
+        f"ERL changed under a bijective relabelling: {big.erl[0]} (huge ids) vs "
+        f"{small.erl[0]} (small ids) -- ids are being compared through float64"
+    )
+
+
+def test_float64_route_would_have_conflated_those_ids():
+    """Pins the premise of the test above: the float64 route really is lossy here."""
+    M = np.uint64(1 << 60)
+    C = M + np.uint64(1)
+
+    # what the exclusion line must never become
+    lossy = np.isin(np.array([C], dtype=np.uint64).astype(np.float64),
+                    np.array([int(M)], dtype=np.int64).astype(np.float64))
+    assert bool(lossy[0]), "premise broken: these ids no longer collide in float64"
+
+    # what it currently is
+    exact = np.isin(np.array([C], dtype=np.uint64), np.array([int(M)]))
+    assert not bool(exact[0]), (
+        "np.isin now promotes uint64 x int64 through float64 -- em_erl/eval.py's "
+        "merging-segment exclusion is conflating distinct segment ids"
+    )

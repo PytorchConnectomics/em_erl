@@ -277,6 +277,63 @@ def _try_pack_pair_keys(left, right):
     return left_i * radix + right_i, radix
 
 
+def _pair_keys(left, right):
+    """Pack ``(left, right)`` pairs into one int64 key, with a decoder.
+
+    Returns ``(keys, decode)`` where ``decode(unique_keys)`` yields
+    ``(left_values, right_values)`` in the original id space.
+
+    The direct radix packing in :func:`_try_pack_pair_keys` only works while
+    ``left_max * (right_max + 1)`` fits in int64. Real segmentations break that:
+    ABISS emits per-chunk offsets around 2**56, so the packer bails as soon as a
+    skeleton id exceeds ~127 -- i.e. on dense ground truth (the FFN pseudo-GT has
+    796 skeletons), though not on the 63-skeleton human GT.
+
+    The previous fallback was ``np.unique(np.column_stack([left, right]), axis=0)``.
+    ``np.column_stack`` of int64 and uint64 promotes to **float64**, so any id above
+    2**53 loses exactness and distinct segments silently merge into one pair --
+    inflating pair counts and summed weights alike (measured: NERL 0.5542 instead
+    of 0.5604 on abiss x FFN pseudo-GT).
+
+    Factorizing each side to dense codes first keeps every id exact and makes the
+    packing bound depend on the number of *distinct* ids rather than their
+    magnitude, so it cannot overflow for any realistic array. It also accepts
+    negative ids, which the direct packer rejects.
+    """
+    left = np.asarray(left)
+    right = np.asarray(right)
+    if left.shape != right.shape:
+        raise ValueError("Pair arrays must have the same shape")
+
+    keys, radix = _try_pack_pair_keys(left, right)
+    if keys is not None:
+        def decode(uniq):
+            return (
+                (uniq // radix).astype(np.int64, copy=False),
+                (uniq % radix).astype(right.dtype, copy=False),
+            )
+
+        return keys, decode
+
+    left_vals, left_code = np.unique(left, return_inverse=True)
+    right_vals, right_code = np.unique(right, return_inverse=True)
+    radix_c = int(right_vals.size)
+    if radix_c and int(left_vals.size) - 1 > (np.iinfo(np.int64).max - radix_c) // radix_c:
+        raise OverflowError(  # unreachable for any array that fits in memory
+            f"cannot pack {left_vals.size} x {right_vals.size} distinct pairs into int64"
+        )
+    keys = left_code.astype(np.int64, copy=False).ravel() * radix_c
+    keys += right_code.astype(np.int64, copy=False).ravel()
+
+    def decode(uniq):
+        return (
+            left_vals[uniq // radix_c].astype(np.int64, copy=False),
+            right_vals[uniq % radix_c].astype(right.dtype, copy=False),
+        )
+
+    return keys, decode
+
+
 def _unique_pair_counts(left, right):
     left = np.asarray(left)
     right = np.asarray(right)
@@ -287,23 +344,10 @@ def _unique_pair_counts(left, right):
             np.zeros(0, dtype=np.int64),
         )
 
-    keys, radix = _try_pack_pair_keys(left, right)
-    if keys is not None:
-        uniq, counts = np.unique(keys, return_counts=True)
-        left_u = (uniq // radix).astype(np.int64, copy=False)
-        right_u = (uniq % radix).astype(right.dtype, copy=False)
-        return left_u, right_u, counts.astype(np.int64, copy=False)
-
-    pairs, counts = np.unique(
-        np.column_stack([left, right]),
-        axis=0,
-        return_counts=True,
-    )
-    return (
-        pairs[:, 0].astype(np.int64, copy=False),
-        pairs[:, 1].astype(right.dtype, copy=False),
-        counts.astype(np.int64, copy=False),
-    )
+    keys, decode = _pair_keys(left, right)
+    uniq, counts = np.unique(keys, return_counts=True)
+    left_u, right_u = decode(uniq)
+    return left_u, right_u, counts.astype(np.int64, copy=False)
 
 
 def _sum_weights_by_pair(left, right, weights):
@@ -317,25 +361,11 @@ def _sum_weights_by_pair(left, right, weights):
             np.zeros(0, dtype=np.float64),
         )
 
-    keys, radix = _try_pack_pair_keys(left, right)
-    if keys is not None:
-        uniq, inv = np.unique(keys, return_inverse=True)
-        sums = np.bincount(inv, weights=weights)
-        left_u = (uniq // radix).astype(np.int64, copy=False)
-        right_u = (uniq % radix).astype(right.dtype, copy=False)
-        return left_u, right_u, sums
-
-    pairs, inv = np.unique(
-        np.column_stack([left, right]),
-        axis=0,
-        return_inverse=True,
-    )
-    sums = np.bincount(inv, weights=weights)
-    return (
-        pairs[:, 0].astype(np.int64, copy=False),
-        pairs[:, 1].astype(right.dtype, copy=False),
-        sums,
-    )
+    keys, decode = _pair_keys(left, right)
+    uniq, inv = np.unique(keys, return_inverse=True)
+    sums = np.bincount(inv.ravel(), weights=weights, minlength=uniq.size)
+    left_u, right_u = decode(uniq)
+    return left_u, right_u, sums
 
 
 def _group_ptr_from_sorted_left(left_sorted, group_count):
@@ -391,7 +421,7 @@ def compute_erl_score(
         merged_mask_set = set(merged_mask.tolist()) if merged_mask.size > 0 else set()
         if merged_mask.size > 0 and big_pair_seg.size > 0:
             merged_mask_skeletons = np.unique(
-                big_pair_skel[np.isin(big_pair_seg, merged_mask)]
+                big_pair_skel[np.isin(big_pair_seg, merged_mask.astype(big_pair_seg.dtype, copy=False))]
             ).astype(int)
             if merged_mask_skeletons.size > 0:
                 is_merged_skeleton[merged_mask_skeletons] = True
@@ -418,7 +448,18 @@ def compute_erl_score(
         # Exclude edges on merging segments for merged skeletons
         if all_merging_segments_set and np.any(is_merged_skeleton):
             edge_is_merged_skel = is_merged_skeleton[edge_skel]
-            edge_is_merging_seg = np.isin(seg_u, np.array(list(all_merging_segments_set)))
+            # dtype MUST match seg_u: np.isin's sort path (taken once the test
+            # array exceeds ~10 elements) concatenates the two arrays, and
+            # uint64 x int64 promotes to float64. Segment ids here reach 2**60,
+            # where float64 spacing is 256, so distinct ids collide and innocent
+            # edges get excluded. This bites at merge_threshold=0 (large merging
+            # set -> sort path) and hides at mt=50 (small set -> exact path).
+            merging_arr = np.fromiter(
+                all_merging_segments_set,
+                dtype=seg_u.dtype,
+                count=len(all_merging_segments_set),
+            )
+            edge_is_merging_seg = np.isin(seg_u, merging_arr)
             exclude_mask = edge_is_merged_skel & edge_is_merging_seg
             correct_edge_mask = same_nonzero & ~exclude_mask
         else:
